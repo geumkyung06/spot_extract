@@ -1,0 +1,20 @@
+# Web Framework & Extensions
+Flask
+Flask-SQLAlchemy
+Flask-CORS
+
+# Database Drivers
+PyMySQL
+mysql-connector-python
+cryptography
+
+# Environment Variables
+python-dotenv
+
+# HTTP Requests & APIs
+requests
+openai
+
+# Web Scraping & Parsing
+playwright
+beautifulsoup4
