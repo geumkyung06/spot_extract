@@ -3,7 +3,7 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
-# 1. 인스타그램 게시물 테이블
+# insta_url table
 class InstaUrl(db.Model):
     __tablename__ = 'insta_url'
     
@@ -15,7 +15,7 @@ class InstaUrl(db.Model):
     image = db.Column(db.String(255))    # 썸네일
     texts = db.Column(db.Text)           # Text?
 
-# 2. 장소 테이블
+# place table
 class Place(db.Model):
     __tablename__ = 'place'
 
@@ -35,7 +35,7 @@ class Place(db.Model):
     rating_count = db.Column(db.Integer, default=0)
     saved_count = db.Column(db.Integer, default=0)
 
-# 3. 매핑 테이블 (인스타URL <-> 장소)
+# 3. url_place table
 class UrlPlace(db.Model):
     __tablename__ = 'url_place'
     
@@ -49,7 +49,7 @@ class UrlPlace(db.Model):
 
 db = SQLAlchemy()
 
-# 4. 유저가 저장한 장소 (SavedPlace)
+# 4. saved_place table
 class SavedPlace(db.Model):
     __tablename__ = 'saved_place'
     
@@ -58,7 +58,7 @@ class SavedPlace(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     
     user_id = db.Column(db.BigInteger, nullable=False)  # 유저 ID
-    place_id = db.Column(db.BigInteger, db.ForeignKey('place.id'), nullable=False) # 장소 ID
+    place_id = db.Column(db.BigInteger, db.ForeignKey('places.id'), nullable=False) # 장소 ID
     
     rating = db.Column(db.Integer, default=0)           # 유저 별점
     save_type = db.Column(db.String(255), default="spot") # 저장 유형 (instagram, spot)

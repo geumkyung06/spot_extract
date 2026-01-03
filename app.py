@@ -1,12 +1,15 @@
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 import pymysql
 from urllib.parse import quote_plus
 from flask import Flask
-from flask_cors import CORS  # 프론트엔드 연동을 위해 필요 (선택사항)
+from flask_cors import CORS 
 from dotenv import load_dotenv
 
 # 1. 모델과 DB 객체 임포트 (models.py에서 만든 db 객체 가져오기)
-from routes.models import db
+from models import db
 
 # 2. 라우트 임포트 (우리가 만든 routes 폴더 안의 파일들)
 from routes.instagram import bp as instagram_bp
@@ -72,4 +75,4 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"DB 연결 실패: {e}")
 
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True) 

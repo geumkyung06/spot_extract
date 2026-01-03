@@ -10,7 +10,7 @@ def _auth_guard():
     if not getattr(g, "user_id", None):
         g.user_id = 1  # [TEST] 임시 유저 ID
 
-@user_places_bp.route("/", methods=["POST"])
+@user_places_bp.route("/places", methods=["POST"])
 def save_user_places():
 
     try:

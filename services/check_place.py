@@ -105,7 +105,7 @@ def _get_google_place_info(name: str, address: str):
     좌표(lat, lng)와 상세 타입(types)을 한 번에 가져옵니다.
     """
     if not GOOGLE_API_KEY:
-        print("⚠️ GOOGLE_MAPS_API_KEY가 없습니다.")
+        print("GOOGLE_MAPS_API_KEY가 없습니다.")
         return None, None, []
 
     # 네이버에서 찾은 가장 정확한 이름과 주소로 검색
@@ -201,11 +201,11 @@ def check_place_on_naver(gpt_results: list[list[str]]) -> list[dict]:
             }
             confirmed.append(place_obj)
             
-            print(f"✅ {final_name}")
+            print(f"{final_name}")
             print(f"   └─ 카테고리: {my_category} (구글: {google_types})")
             print(f"   └─ 좌표: {lat}, {lng}")
 
         else:
-            print(f"⚠️ 검증 실패: {name} (네이버 검색 결과 없음)")
+            print(f"검증 실패: {name} (네이버 검색 결과 없음)")
 
     return confirmed

@@ -6,3 +6,5 @@ ex/
 secrets/
 trash/
 services/temp_images/
+static/uploads/*
+!static/uploads/.gitkeep
