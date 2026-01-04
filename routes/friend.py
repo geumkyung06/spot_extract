@@ -27,6 +27,37 @@ def close_db(e=None):
 # 1. 친구 목록 전체 조회
 @bp.route('/friends/list', methods=['GET'])
 def get_friends_list():
+    """
+    친구 목록 전체 조회
+    ---
+    tags:
+      - Friend
+    parameters:
+      - name: user_id
+        in: query
+        type: integer
+        required: true
+        description: 내 유저 ID (이 유저의 친구 목록을 조회)
+    responses:
+      200:
+        description: 친구 목록 조회 성공
+        schema:
+          type: object
+          properties:
+            friends:
+              type: array
+              items:
+                type: object
+                properties:
+                  friend_id:
+                    type: integer
+                  nickname:
+                    type: string
+                  profile_url:
+                    type: string
+                  updated_at:
+                    type: string
+    """
     user_id = request.args.get('user_id')
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -49,12 +80,43 @@ def get_friends_list():
 
 
 # 2. 특정 친구 상세 정보 조회
-@bp.route('/friends/<int:friend_id>', methods=['GET'])
+@bp.route('/main/places/<int:friend_id>', methods=['GET'])
 def get_friend_detail(friend_id):
+    """
+    특정 친구 상세 정보 조회
+    ---
+    tags:
+      - Friend
+    parameters:
+      - name: friend_id
+        in: path
+        type: integer
+        required: true
+        description: 조회할 친구의 ID
+    responses:
+      200:
+        description: 조회 성공
+        schema:
+          type: object
+          properties:
+            user_id:
+              type: integer
+            nickname:
+              type: string
+            profile_url:
+              type: string
+            comment:
+              type: string
+              description: 코멘트(소개글)
+            email:
+              type: string
+      404:
+        description: 친구를 찾을 수 없음
+    """
     db = get_db()
     cursor = db.cursor()
 
-    # kakao_mem 테이블 사용, info가 한줄 소개(comment) 역할
+    # kakao_mem 테이블 사용, info가 comment 역할
     query = """
         SELECT id AS user_id, nickname, photo AS profile_url, info AS comment, email
         FROM kakao_mem
@@ -72,6 +134,28 @@ def get_friend_detail(friend_id):
 # 3. 친구 삭제 (언팔로우)
 @bp.route('/friends/<int:friend_id>', methods=['DELETE'])
 def delete_friend_unfollow(friend_id):
+    """
+    친구 삭제 (언팔로우)
+    ---
+    tags:
+      - Friend
+    parameters:
+      - name: friend_id
+        in: path
+        type: integer
+        required: true
+        description: 삭제할 친구의 ID
+      - name: user_id
+        in: query
+        type: integer
+        required: true
+        description: 내 유저 ID
+    responses:
+      200:
+        description: 언팔로우 성공
+      404:
+        description: 친구 관계가 없거나 이미 삭제됨
+    """
     user_id = request.args.get("user_id", type=int)
 
     if not user_id:
@@ -105,6 +189,35 @@ def delete_friend_unfollow(friend_id):
 # 4. 친구 신고 기능
 @bp.route('/friends/report/<int:friend_id>', methods=['POST'])
 def post_friend_report(friend_id):
+    """
+    친구 신고 기능
+    ---
+    tags:
+      - Friend
+    parameters:
+      - name: friend_id
+        in: path
+        type: integer
+        required: true
+        description: 신고할 대상(친구) ID
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            user_id:
+              type: integer
+              description: 신고하는 사람(나) ID
+            reason:
+              type: string
+              description: 신고 사유
+    responses:
+      201:
+        description: 신고 접수 완료
+      409:
+        description: 이미 신고한 사용자
+    """
     data = request.get_json()
     user_id = data.get('user_id')
     reason = data.get('reason')
@@ -135,6 +248,32 @@ def post_friend_report(friend_id):
 # 5. 친구 차단 기능
 @bp.route('/friends/block/<int:friend_id>', methods=['POST'])
 def post_friend_block(friend_id):
+    """
+    친구 차단 기능
+    ---
+    tags:
+      - Friend
+    parameters:
+      - name: friend_id
+        in: path
+        type: integer
+        required: true
+        description: 차단할 대상(친구) ID
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            user_id:
+              type: integer
+              description: 차단하는 사람(나) ID
+    responses:
+      201:
+        description: 차단 성공
+      409:
+        description: 이미 차단된 사용자
+    """
     data = request.get_json()
     user_id = data.get('user_id')
 
@@ -177,14 +316,66 @@ def post_friend_block(friend_id):
 ###############################################
 # 친구가 저장한 장소 목록 조회
 
-@bp.route('/friend/places/<int:friend_id>', methods=['GET'])
+@bp.route('/main/places/<int:friend_id>', methods=['GET'])
 def get_friend_places(friend_id):
+    """
+    친구가 저장한 장소 목록 조회
+    ---
+    tags:
+      - Friend
+    parameters:
+      - name: friend_id
+        in: path
+        type: integer
+        required: true
+        description: 친구 ID
+      - name: sort
+        in: query
+        type: string
+        description: 정렬 기준 (latest, star)
+        default: latest
+      - name: category
+        in: query
+        type: string
+        description: "카테고리 필터 (옵션: "dessert", "etc", "cafe", "bar", "exhibition", "restaurant", "activity", "prop_shop", "clothing_store")"
+    responses:
+      200:
+        description: 조회 성공
+        schema:
+          type: object
+          properties:
+            friend_id:
+              type: integer
+            applied_filter:
+              type: string
+            applied_sort:
+              type: string
+            places:
+              type: array
+              items:
+                type: object
+                properties:
+                  place_id:
+                    type: integer
+                  name:
+                    type: string
+                  address:
+                    type: string
+                  photo:
+                    type: string
+                  category:
+                    type: string
+                  star:
+                    type: integer
+                  updated_at:
+                    type: string
+    """
     # 정렬 및 필터 파라미터
     sort_by = request.args.get("sort", "latest")
     category_filter = request.args.get("category")
 
     # 유효한 카테고리 목록
-    valid_categories = ["dessert", "etc", "cafe", "bar", "exhibition", "event", "restaurant"]
+    valid_categories = ["dessert", "etc", "cafe", "bar", "exhibition", "restaurant", "activity", "prop_shop", "clothing_store"]
 
     db = get_db()
     cursor = db.cursor() # DictCursor는 get_db()에서 설정됨
@@ -234,8 +425,28 @@ def get_friend_places(friend_id):
 #                    코멘트                     #                    
 ###############################################
 # 친구가 남긴 코멘트 전체 조회
-@bp.route('/friends/comment/<int:friend_id>', methods=['GET'])
+@bp.route('/main/comment/<int:friend_id>', methods=['GET'])
 def get_friend_comments(friend_id):
+    """
+    친구가 남긴 코멘트 전체 조회
+    ---
+    tags:
+      - Friend
+    parameters:
+      - name: friend_id
+        in: path
+        type: integer
+        required: true
+        description: 친구 ID
+      - name: sort
+        in: query
+        type: string
+        description: 정렬 기준 (기본값 latest)
+        default: latest
+    responses:
+      200:
+        description: 코멘트 조회 성공
+    """
     sort = request.args.get('sort', 'latest') 
 
     db = get_db()
@@ -293,6 +504,35 @@ def get_friend_comments(friend_id):
 # 북마크 저장 (내 저장소로 가져오기)
 @bp.route('/friends/<int:friend_id>/bookmark_places', methods=['POST'])
 def post_bookmark_places(friend_id):
+    """
+    친구 장소 내 보관함으로 가져오기 (북마크)
+    ---
+    tags:
+      - Friend
+    parameters:
+      - name: friend_id
+        in: path
+        type: integer
+        required: true
+        description: (경로용) 친구 ID
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            user_id:
+              type: integer
+              description: 내 ID
+            place_ids:
+              type: array
+              items:
+                type: integer
+              description: 가져올 장소들의 ID 리스트
+    responses:
+      201:
+        description: 저장 성공
+    """
     db = get_db()
     cursor = db.cursor()
 

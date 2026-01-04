@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 from flask import Flask
 from flask_cors import CORS 
 from dotenv import load_dotenv
+from flasgger import Swagger
 
 # 1. 모델과 DB 객체 임포트 (models.py에서 만든 db 객체 가져오기)
 from models import db
@@ -16,6 +17,7 @@ from routes.instagram import bp as instagram_bp
 from routes.places import user_places_bp
 from routes.friend import bp as friend_bp
 
+
 # .env 파일 로드
 load_dotenv()
 
@@ -24,6 +26,8 @@ pymysql.install_as_MySQLdb()
 
 def create_app():
     app = Flask(__name__)
+
+    swagger = Swagger(app)
     
     # CORS 설정 (프론트엔드에서 API 호출 허용)
     CORS(app) 

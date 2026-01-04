@@ -17,6 +17,60 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 @bp.route('/analyze', methods=['POST'])
 def analyze_instagram():
+    """
+    인스타그램 URL 분석 및 장소 추출
+    ---
+    tags:
+      - Instagram
+    summary: 인스타그램 게시글 URL을 분석 후 장소 정보 추출 및 저장
+    description: >
+      입력받은 인스타그램 URL 크롤링을 통하여 캡션 혹은 이미지에서 정보 추출
+      GPT를 통해 장소 정보 파싱. 네이버/구글 맵 API로 검증 후 DB(insta_url, place, url_place)에 저장
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - name: body
+        in: body
+        required: true
+        description: 분석할 인스타그램 URL JSON
+        schema:
+          type: object
+          required:
+            - url
+          properties:
+            url:
+              type: string
+              example: "https://www.instagram.com/p/DSL6Oaak82_/ "
+              description: "분석할 인스타그램 게시글 링크"
+    responses:
+      200:
+        description: 분석 및 저장 성공
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: "success"
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: 장소 이름
+                    example: "스타벅스 강남점"
+                  category:
+                    type: string
+                    description: 장소 카테고리
+                    example: "cafe"
+      400:
+        description: URL 파라미터 누락
+      500:
+        description: 서버 내부 오류 (크롤링 실패, GPT 파싱 실패 등)
+    """
     try:
         data = request.get_json()
         url = data.get('url')
