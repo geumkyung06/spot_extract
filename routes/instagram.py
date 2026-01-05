@@ -15,6 +15,7 @@ UPLOAD_FOLDER = os.path.join(os.getcwd(), 'static', 'uploads')
 # 폴더가 없으면 생성
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# 게시물 분석 후 장소 정보와 이미지를 DB에 저장 및 유저 화면에 반환
 @bp.route('/analyze', methods=['POST'])
 def analyze_instagram():
     """
@@ -90,9 +91,7 @@ def analyze_instagram():
             
             print(f"[Image] 영구 저장 완료: {final_path}")
         
-        # -------------------------------------------------------
-        # [Step 1] InstaUrl 테이블 저장
-        # -------------------------------------------------------
+        # InstaUrl 테이블 저장
         new_insta = InstaUrl(
             url=url,
             image=final_path,
@@ -110,9 +109,8 @@ def analyze_instagram():
         for p_info in verified_places:
             if not p_info.get('name'): continue
 
-            # ---------------------------------------------------
-            # [Step 3] Place (장소) 저장/조회
-            # ---------------------------------------------------
+
+            # Place (장소) 저장/조회
             place = Place.query.filter(
                 Place.name == p_info['name'],
                 Place.address == p_info['address']
@@ -134,9 +132,7 @@ def analyze_instagram():
                 db.session.flush() # place.id 생성
                 print(f"   └─ [New Place] 장소 저장: {place.name}")
 
-            # ---------------------------------------------------
-            # [Step 4] UrlPlace (매핑) 저장
-            # ---------------------------------------------------
+            # UrlPlace (매핑) 저장
             # 중복 매핑 방지
             mapping = UrlPlace.query.filter_by(
                 instaurl_id=new_insta.id,
@@ -165,3 +161,5 @@ def analyze_instagram():
         db.session.rollback()
         print(f"Error: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+

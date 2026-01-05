@@ -4,13 +4,13 @@ from models import db, Place, SavedPlace # models.py에서 임포트
 
 user_places_bp = Blueprint("user_places", __name__, url_prefix='/places')
 
-# [미들웨어 대용] 로그인 체크 (실제로는 app.before_request나 데코레이터로 처리 권장)
+# [미들웨어 대용] 로그인 체크 (실제로는 app.before_request나 데코레이터로 처리 권장)..?
 @user_places_bp.before_request
 def _auth_guard():
     if not getattr(g, "user_id", None):
         g.user_id = 1  # [TEST] 임시 유저 ID
 
-@user_places_bp.route("/places", methods=["POST"])
+@user_places_bp.route("/", methods=["POST"])
 def save_user_places():
     """
     장소 보관함 저장
@@ -64,7 +64,7 @@ def save_user_places():
 
         saved_count = 0
         
-        # 2. DB 저장 (Upsert: 없으면 넣고, 있으면 스킵)
+        # 2. DB 저장 (Upsert: 없으면 넣고, 있으면 스킵)..?
         for pid in target_ids:
             # 장소가 실제로 존재하는지 확인
             place_exists = Place.query.get(pid)
@@ -86,7 +86,7 @@ def save_user_places():
                 )
                 db.session.add(new_save)
                 
-                # [선택] 장소 테이블의 총 저장 수(saved_count) 증가
+                # 장소 테이블의 총 저장 수(saved_count) 증가
                 place_exists.saved_count = (place_exists.saved_count or 0) + 1
                 
                 saved_count += 1
@@ -130,7 +130,7 @@ def list_my_places():
         page = int(request.args.get("page", 1))
         size = int(request.args.get("size", 20))
 
-        # Pagination: SavedPlace 조회 (최신순)
+        # Pagination: SavedPlace 조회(최신순)
         pagination = SavedPlace.query.filter_by(user_id=user_id)\
             .order_by(SavedPlace.created_at.desc())\
             .paginate(page=page, per_page=size, error_out=False)
