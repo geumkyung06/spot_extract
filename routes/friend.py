@@ -297,7 +297,7 @@ def post_friend_block(friend_id):
         """
         cursor.execute(insert_query, (user_id, friend_id))
 
-        # 2. 친구 목록(friend)에서 삭제 로직은 주석 처리됨 (필요시 주석 해제)
+        # 2. 친구 목록(friend)에서 삭제 연결해야함
         '''
         delete_query = """
             DELETE FROM friend
@@ -503,7 +503,7 @@ def get_friend_comments(friend_id):
 
 
 # 북마크 저장 (내 저장소로 가져오기)
-@bp.route('/friends/<int:friend_id>/bookmark_places', methods=['POST'])
+@bp.route('/friends/bookmark_places/<int:friend_id>', methods=['POST'])
 @jwt_required()
 def post_bookmark_places(friend_id):
     """
