@@ -18,7 +18,7 @@ def delete_my_place(place_id):
 
         db.session.delete(saved_place)
 
-        # 2. 장소 테이블의 총 저장 수(saved_count) 감소
+        # 2. 해당 장소 테이블의 총 저장 수(saved_count) 감소
         place = Place.query.get(place_id)
         if place and place.saved_count and place.saved_count > 0:
             place.saved_count -= 1

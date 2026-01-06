@@ -1,6 +1,7 @@
 import os
 import pymysql
 from flask import Blueprint, jsonify, request, g
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -26,6 +27,7 @@ def close_db(e=None):
 
 # 친구 목록 전체 조회
 @bp.route('/friends/list', methods=['GET'])
+@jwt_required()
 def get_friends_list():
     """
     친구 목록 전체 조회
@@ -58,7 +60,8 @@ def get_friends_list():
                   updated_at:
                     type: string
     """
-    user_id = request.args.get('user_id')
+    user_id = get_jwt_identity()
+
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
 
@@ -81,6 +84,7 @@ def get_friends_list():
 
 # 특정 친구 상세 정보 조회
 @bp.route('/main/places/<int:friend_id>', methods=['GET'])
+@jwt_required()
 def get_friend_detail(friend_id):
     """
     특정 친구 상세 정보 조회
@@ -133,6 +137,7 @@ def get_friend_detail(friend_id):
 
 # 친구 삭제 (언팔로우)
 @bp.route('/friends/<int:friend_id>', methods=['DELETE'])
+@jwt_required()
 def delete_friend_unfollow(friend_id):
     """
     친구 삭제 (언팔로우)
@@ -156,7 +161,7 @@ def delete_friend_unfollow(friend_id):
       404:
         description: 친구 관계가 없거나 이미 삭제됨
     """
-    user_id = request.args.get("user_id", type=int)
+    user_id = get_jwt_identity()
 
     if not user_id:
         return jsonify({"message": "user_id required"}), 400
@@ -188,6 +193,7 @@ def delete_friend_unfollow(friend_id):
 
 # 친구 신고 기능
 @bp.route('/friends/report/<int:friend_id>', methods=['POST'])
+@jwt_required()
 def post_friend_report(friend_id):
     """
     친구 신고 기능
@@ -219,7 +225,7 @@ def post_friend_report(friend_id):
         description: 이미 신고한 사용자
     """
     data = request.get_json()
-    user_id = data.get('user_id')
+    user_id = get_jwt_identity()
     reason = data.get('reason')
 
     if not user_id or not reason:
@@ -247,6 +253,7 @@ def post_friend_report(friend_id):
 
 # 친구 차단 기능
 @bp.route('/friends/block/<int:friend_id>', methods=['POST'])
+@jwt_required()
 def post_friend_block(friend_id):
     """
     친구 차단 기능
@@ -274,8 +281,7 @@ def post_friend_block(friend_id):
       409:
         description: 이미 차단된 사용자
     """
-    data = request.get_json()
-    user_id = data.get('user_id')
+    user_id = get_jwt_identity()
 
     if not user_id:
         return jsonify({"message": "user_id is required"}), 400
@@ -313,6 +319,7 @@ def post_friend_block(friend_id):
 
 # 친구가 저장한 장소 목록 조회
 @bp.route('/main/places/<int:friend_id>', methods=['GET'])
+@jwt_required()
 def get_friend_places(friend_id):
     """
     친구가 저장한 장소 목록 조회
@@ -419,6 +426,7 @@ def get_friend_places(friend_id):
 
 # 친구가 남긴 코멘트 전체 조회
 @bp.route('/main/comment/<int:friend_id>', methods=['GET'])
+@jwt_required()
 def get_friend_comments(friend_id):
     """
     친구가 남긴 코멘트 전체 조회
@@ -496,6 +504,7 @@ def get_friend_comments(friend_id):
 
 # 북마크 저장 (내 저장소로 가져오기)
 @bp.route('/friends/<int:friend_id>/bookmark_places', methods=['POST'])
+@jwt_required()
 def post_bookmark_places(friend_id):
     """
     친구 장소 내 보관함으로 가져오기 (북마크)
@@ -530,7 +539,7 @@ def post_bookmark_places(friend_id):
     cursor = db.cursor()
 
     data = request.get_json()
-    user_id = data.get('user_id')  # 현재 로그인한 사용자 (나)
+    user_id = get_jwt_identity()
     place_ids = data.get('place_ids', [])
 
     if not user_id or not place_ids:

@@ -2,6 +2,7 @@
 Flask
 Flask-SQLAlchemy
 Flask-CORS
+flask_jwt_extended
 
 # Database Drivers
 PyMySQL
@@ -18,3 +19,4 @@ openai
 # Web Scraping & Parsing
 playwright
 beautifulsoup4
+aiohttp

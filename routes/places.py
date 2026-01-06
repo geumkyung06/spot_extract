@@ -1,16 +1,14 @@
 import logging
 from flask import Blueprint, request, jsonify, g
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
 from models import db, Place, SavedPlace # models.py에서 임포트
 
 user_places_bp = Blueprint("user_places", __name__, url_prefix='/places')
 
-# [미들웨어 대용] 로그인 체크 (실제로는 app.before_request나 데코레이터로 처리 권장)..?
-@user_places_bp.before_request
-def _auth_guard():
-    if not getattr(g, "user_id", None):
-        g.user_id = 1  # [TEST] 임시 유저 ID
 
 @user_places_bp.route("/", methods=["POST"])
+@jwt_required()
 def save_user_places():
     """
     장소 보관함 저장
@@ -44,9 +42,10 @@ def save_user_places():
     """
     
     try:
+        user_id = get_jwt_identity() 
+
         body = request.get_json() or {}
-        user_id = g.user_id
-        save_type = body.get("save_type", "instagram")
+        save_type = body.get("save_type", "spot") # 기본값 설정 - 인스타에선 "instagram"
 
         target_ids = set()
         
@@ -105,6 +104,7 @@ def save_user_places():
 
 
 @user_places_bp.route("/", methods=["GET"])
+@jwt_required()
 def list_my_places():
     """
     보관함 장소 목록 조회
@@ -126,7 +126,8 @@ def list_my_places():
     """
 
     try:
-        user_id = g.user_id
+        user_id = get_jwt_identity()
+        
         page = int(request.args.get("page", 1))
         size = int(request.args.get("size", 20))
 

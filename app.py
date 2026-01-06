@@ -7,7 +7,8 @@ from urllib.parse import quote_plus
 from flask import Flask
 from flask_cors import CORS 
 from dotenv import load_dotenv
-from flasgger import Swagger  # [중요] 임포트 필수
+from flasgger import Swagger
+from flask_jwt_extended import JWTManager
 
 # 1. 모델과 DB 객체 임포트
 from models import db
@@ -23,8 +24,14 @@ load_dotenv()
 # pymysql 설정
 pymysql.install_as_MySQLdb()
 
+
+
 def create_app():
     app = Flask(__name__)
+
+    app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET")
+    app.config["JWT_ALGORITHM"] = os.getenv("JWT_ALGORITHM")
+    jwt = JWTManager(app)
     
     # CORS 설정
     CORS(app, resources={r"*": {"origins": "*"}}) 

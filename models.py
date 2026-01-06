@@ -13,7 +13,7 @@ class InstaUrl(db.Model):
     
     url = db.Column(db.String(255))      # 인스타 링크
     image = db.Column(db.String(255))    # 썸네일
-    texts = db.Column(db.Text)           # Text?
+    texts = db.Column(db.Text)           # 캡션 전체 저장
 
 # place table
 class Place(db.Model):
@@ -29,7 +29,8 @@ class Place(db.Model):
     address = db.Column(db.String(255))
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
-    list = db.Column(db.String(255))     # 카테고리
+    list = db.Column(db.String(255))    # 뭐임?
+    category = db.Column(db.String(255)) # new column for category
     photo = db.Column(db.String(255))
     rating_avg = db.Column(db.Float, default=0.0)
     rating_count = db.Column(db.Integer, default=0)
