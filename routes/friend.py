@@ -34,15 +34,11 @@ def get_friends_list():
     ---
     tags:
       - Friend
-    parameters:
-      - name: user_id
-        in: query
-        type: integer
-        required: true
-        description: 내 유저 ID (이 유저의 친구 목록을 조회)
+    security:
+      - Bearer: []
     responses:
       200:
-        description: 친구 목록 조회 성공
+        description: 친구 목록 반환 성공
         schema:
           type: object
           properties:
@@ -68,12 +64,12 @@ def get_friends_list():
     db = get_db()
     cursor = db.cursor()
 
-    # friend 테이블(userid, friendid) JOIN kakao_mem(id, photo, nickname)
+    # friend 테이블(member_id, friend_id) JOIN kakao_mem(id, photo, nickname)
     query = """
-        SELECT f.friendid AS friend_id, k.nickname, k.photo AS profile_url, f.updated_at
+        SELECT f.friend_id AS friend_id, k.nickname, k.photo AS profile_url, f.updated_at
         FROM friend f
-        JOIN kakao_mem k ON f.friendid = k.id
-        WHERE f.userid = %s
+        JOIN kakao_mem k ON f.friend_id = k.id
+        WHERE f.member_id = %s
         ORDER BY f.updated_at DESC
     """
     cursor.execute(query, (user_id,))
@@ -82,21 +78,23 @@ def get_friends_list():
     return jsonify({'friends': friends}), 200
 
 
-# 특정 친구 상세 정보 조회
-@bp.route('/main/places/<int:friend_id>', methods=['GET'])
+# 특정 친구 상세 정보 조회 = 특정 친구 프로필 확인
+@bp.route('/main/profile/<int:friend_id>', methods=['GET'])
 @jwt_required()
 def get_friend_detail(friend_id):
     """
-    특정 친구 상세 정보 조회
+    특정 친구 프로필 상세 조회
     ---
     tags:
       - Friend
+    security:
+      - Bearer: []
     parameters:
       - name: friend_id
         in: path
         type: integer
         required: true
-        description: 조회할 친구의 ID
+        description: 친구 ID
     responses:
       200:
         description: 조회 성공
@@ -105,13 +103,12 @@ def get_friend_detail(friend_id):
           properties:
             user_id:
               type: integer
-            nickname:
+            spot_nickname:
               type: string
             profile_url:
               type: string
             comment:
               type: string
-              description: 코멘트(소개글)
             email:
               type: string
       404:
@@ -122,7 +119,7 @@ def get_friend_detail(friend_id):
 
     # kakao_mem 테이블 사용, info가 comment 역할
     query = """
-        SELECT id AS user_id, nickname, photo AS profile_url, info AS comment, email
+        SELECT id AS user_id, spot_nickname, photo AS profile_url, info AS comment, email
         FROM kakao_mem
         WHERE id = %s
     """
@@ -144,20 +141,17 @@ def delete_friend_unfollow(friend_id):
     ---
     tags:
       - Friend
+    security:
+      - Bearer: []
     parameters:
       - name: friend_id
         in: path
         type: integer
         required: true
-        description: 삭제할 친구의 ID
-      - name: user_id
-        in: query
-        type: integer
-        required: true
-        description: 내 유저 ID
+        description: 삭제할 친구 ID
     responses:
       200:
-        description: 언팔로우 성공
+        description: 삭제 성공
       404:
         description: 친구 관계가 없거나 이미 삭제됨
     """
@@ -172,8 +166,7 @@ def delete_friend_unfollow(friend_id):
     try:
         # friend 테이블, 컬럼명 userid, friendid
         cursor.execute("""
-            DELETE FROM friend
-            WHERE userid = %s AND friendid = %s
+            DELETE FROM friend WHERE member_id = %s AND friend_id = %s
         """, (user_id, friend_id))
         
         db.commit()
@@ -191,30 +184,28 @@ def delete_friend_unfollow(friend_id):
         return jsonify({"error": str(e)}), 500
 
 
-# 친구 신고 기능
+# 친구 신고 기능 - 추가만?
 @bp.route('/friends/report/<int:friend_id>', methods=['POST'])
 @jwt_required()
 def post_friend_report(friend_id):
     """
-    친구 신고 기능
+    친구 신고하기 (수정 필요)
     ---
     tags:
       - Friend
+    security:
+      - Bearer: []
     parameters:
       - name: friend_id
         in: path
         type: integer
         required: true
-        description: 신고할 대상(친구) ID
       - name: body
         in: body
         required: true
         schema:
           type: object
           properties:
-            user_id:
-              type: integer
-              description: 신고하는 사람(나) ID
             reason:
               type: string
               description: 신고 사유
@@ -256,25 +247,17 @@ def post_friend_report(friend_id):
 @jwt_required()
 def post_friend_block(friend_id):
     """
-    친구 차단 기능
+    친구 차단하기
     ---
     tags:
       - Friend
+    security:
+      - Bearer: []
     parameters:
       - name: friend_id
         in: path
         type: integer
         required: true
-        description: 차단할 대상(친구) ID
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            user_id:
-              type: integer
-              description: 차단하는 사람(나) ID
     responses:
       201:
         description: 차단 성공
@@ -290,10 +273,11 @@ def post_friend_block(friend_id):
     cursor = db.cursor()
 
     try:
-        # 1. 차단 목록(user_block)에 추가
+        # 1. 차단 목록 status update
+        # member_id, friend_id, status 순서로 매핑
         insert_query = """
-            INSERT INTO user_block (blocker_id, blocked_id, created_at)
-            VALUES (%s, %s, NOW())
+        INSERT INTO friend (member_id, friend_id, status, created_at, updated_at)
+        VALUES (%s, %s, 'block', NOW(), NOW())
         """
         cursor.execute(insert_query, (user_id, friend_id))
 
@@ -301,8 +285,8 @@ def post_friend_block(friend_id):
         '''
         delete_query = """
             DELETE FROM friend
-            WHERE (userid = %s AND friendid = %s) 
-               OR (userid = %s AND friendid = %s)
+            WHERE (user_id = %s AND friend_id = %s) 
+               OR (user_id = %s AND friend_id = %s)
         """
         cursor.execute(delete_query, (user_id, friend_id, friend_id, user_id))
         '''
@@ -320,12 +304,15 @@ def post_friend_block(friend_id):
 # 친구가 저장한 장소 목록 조회
 @bp.route('/main/places/<int:friend_id>', methods=['GET'])
 @jwt_required()
+@jwt_required()
 def get_friend_places(friend_id):
     """
     친구가 저장한 장소 목록 조회
     ---
     tags:
       - Friend
+    security:
+      - Bearer: []
     parameters:
       - name: friend_id
         in: path
@@ -340,39 +327,50 @@ def get_friend_places(friend_id):
       - name: category
         in: query
         type: string
-        description: "카테고리 필터 (옵션: 'dessert', 'etc', 'cafe', 'bar', 'exhibition', 'restaurant', 'activity', 'prop_shop', 'clothing_store')"
+        description: 카테고리 필터
     responses:
       200:
-        description: 조회 성공
+        description: 장소 목록 반환 성공
         schema:
-          type: object
-          properties:
-            friend_id:
-              type: integer
-            applied_filter:
-              type: string
-            applied_sort:
-              type: string
-            places:
-              type: array
-              items:
-                type: object
-                properties:
-                  place_id:
-                    type: integer
-                  name:
-                    type: string
-                  address:
-                    type: string
-                  photo:
-                    type: string
-                  category:
-                    type: string
-                  star:
-                    type: integer
-                  updated_at:
-                    type: string
-    """
+          type: array
+          items:
+            type: object
+            properties:
+              placeId:
+                type: integer
+              gId:
+                type: string
+              name:
+                type: string
+              address:
+                type: string
+              latitude:
+                type: number
+              longitude:
+                type: number
+              list:
+                type: string
+              photo:
+                type: string
+              ratingAvg:
+                type: number
+              myRating:
+                type: number
+              isMarked:
+                type: boolean
+              savers:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    nickname:
+                      type: string
+                    profileImageUrl:
+                      type: string
+    """    
+
+    user_id = get_jwt_identity()
+
     # 정렬 및 필터 파라미터
     sort_by = request.args.get("sort", "latest")
     category_filter = request.args.get("category")
@@ -381,31 +379,46 @@ def get_friend_places(friend_id):
     valid_categories = ["dessert", "etc", "cafe", "bar", "exhibition", "restaurant", "activity", "prop_shop", "clothing_store"]
 
     db = get_db()
-    cursor = db.cursor() # DictCursor는 get_db()에서 설정됨
+    cursor = db.cursor()
 
-    # saved_place, place 테이블 조인
+    # 2. 쿼리 작성
+    # - p.*: 장소 기본 정보
+    # - sp.rating: 친구가 매긴 별점 (myRating)
+    # - k.nickname, k.photo: 친구 정보 (savers용)
+    # - my_sp.id: 내가 저장했는지 여부 확인용 (LEFT JOIN)
     query = """
         SELECT
-            p.id AS place_id,
+            p.id AS placeId,
             p.name,
+            p.gid,
             p.address,
+            p.latitude,
+            p.longitude,
+            p.list AS list,
             p.photo,
-            p.list AS category,
+            p.rating_avg AS ratingAvg,
+            p.rating_count AS ratingCount,
+            sp.rating AS friendRating,
             sp.updated_at,
-            sp.rating AS star
+            k.nickname AS friend_nickname,
+            k.photo AS friend_photo,
+            CASE WHEN my_sp.id IS NOT NULL THEN TRUE ELSE FALSE END AS isMarked
         FROM saved_place sp
         JOIN place p ON sp.place_id = p.id
+        JOIN kakao_mem k ON sp.user_id = k.id
+        LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
         WHERE sp.user_id = %s
     """
     
-    params = [friend_id]
+    # 내 아이디: JOIN용, 친구 아이디 : WHERE용
+    params = [user_id, friend_id]
 
-    # [필터링 로직]
     if category_filter and category_filter in valid_categories:
         query += " AND p.list = %s"
         params.append(category_filter)
 
-    # [정렬 로직]
+    # 정렬 방법
+    # 최신순(latest)이 기본, 별점순(star) 선택 가능
     if sort_by == "star":
         order_clause = "sp.rating DESC, sp.updated_at DESC"
     else:
@@ -414,14 +427,36 @@ def get_friend_places(friend_id):
     query += f" ORDER BY {order_clause}"
 
     cursor.execute(query, tuple(params))
-    places = cursor.fetchall()
+    rows = cursor.fetchall()
 
-    return jsonify({
-        "friend_id": friend_id,
-        "applied_filter": category_filter if category_filter else "all",
-        "applied_sort": sort_by,
-        "places": places
-    }), 200
+    # 3. 데이터 가공 (JSON 구조 맞추기)
+    result_places = []
+    
+    for row in rows:
+        place_data = {
+            "placeId": row['placeId'],
+            "gId": row['gid'], # gId가 명확하지 않아 placeId를 문자열로 대체 (필요시 수정)
+            "name": row['name'],
+            "address": row['address'],
+            "latitude": row['latitude'] if row['latitude'] else 0.0,
+            "longitude": row['longitude'] if row['longitude'] else 0.0,
+            "list": row['list'],
+            "photo": row['photo'] if row['photo'] else "",
+            "ratingAvg": row['ratingAvg'] if row['ratingAvg'] else 0.0,
+            "ratingCount": row['ratingCount'] if row['ratingCount'] else 0,
+            "myRating": row['friendRating'], # 친구가 매긴 거
+            "savers": [
+                {
+                    "nickname": row['friend_nickname'],
+                    "profileImageUrl": row['friend_photo'] if row['friend_photo'] else ""
+                }
+            ],
+            "distance": 0, # 현재 내 위치 좌표가 없으므로 0 처리
+            "isMarked": bool(row['isMarked']) # 0/1 -> True/False로 변환
+        }
+        result_places.append(place_data)
+
+    return jsonify(result_places), 200
 
 
 # 친구가 남긴 코멘트 전체 조회
@@ -447,7 +482,12 @@ def get_friend_comments(friend_id):
     responses:
       200:
         description: 코멘트 조회 성공
+
     """
+
+    # 리스폰스 result 내용 보내는 거 수정
+    # 하트 구현
+
     sort = request.args.get('sort', 'latest') 
 
     db = get_db()
@@ -501,77 +541,3 @@ def get_friend_comments(friend_id):
 
     return jsonify({"friend_id": friend_id, "comments": results}), 200
 
-
-# 북마크 저장 (내 저장소로 가져오기)
-@bp.route('/friends/bookmark_places/<int:friend_id>', methods=['POST'])
-@jwt_required()
-def post_bookmark_places(friend_id):
-    """
-    친구 장소 내 보관함으로 가져오기 (북마크)
-    ---
-    tags:
-      - Friend
-    parameters:
-      - name: friend_id
-        in: path
-        type: integer
-        required: true
-        description: (경로용) 친구 ID
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            user_id:
-              type: integer
-              description: 내 ID
-            place_ids:
-              type: array
-              items:
-                type: integer
-              description: 가져올 장소들의 ID 리스트
-    responses:
-      201:
-        description: 저장 성공
-    """
-    db = get_db()
-    cursor = db.cursor()
-
-    data = request.get_json()
-    user_id = get_jwt_identity()
-    place_ids = data.get('place_ids', [])
-
-    if not user_id or not place_ids:
-        return jsonify({"error": "user_id and place_ids are required"}), 400
-
-    for place_id in place_ids:
-        # saved_place 테이블 사용
-        cursor.execute("""
-            SELECT id FROM saved_place
-            WHERE user_id = %s AND place_id = %s
-        """, (user_id, place_id))
-        existing = cursor.fetchone()
-
-        if existing:
-            # 이미 있으면 업데이트
-            cursor.execute("""
-                UPDATE saved_place
-                SET updated_at = NOW()
-                WHERE id = %s
-            """, (existing['id'],)) # DictCursor이므로 key 접근
-        else:
-            # 없으면 새로 삽입
-            cursor.execute("""
-                INSERT INTO saved_place (user_id, place_id, created_at, updated_at, rating)
-                VALUES (%s, %s, NOW(), NOW(), 0)
-            """, (user_id, place_id))
-
-    db.commit()
-
-    return jsonify({
-        "message": "Saved successfully",
-        "friend_id": friend_id,
-        "user_id": user_id,
-        "saved_count": len(place_ids)
-    }), 201
