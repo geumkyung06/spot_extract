@@ -30,42 +30,55 @@ def close_db(e=None):
 @jwt_required()
 def get_friends_list():
     """
-    친구 목록 조회 및 상세 조회 통합
-    ---
-    tags:
-      - Friend
-    security:
-      - Bearer: []
-    parameters:
-      - name: friend_id
-        in: query
-        type: integer
-        required: false
-        description: 특정 친구의 ID (입력 시 해당 친구 상세 정보 반환, 미입력 시 전체 목록 반환)
-    responses:
-      200:
-        description: 조회 성공
-        schema:
-          type: object
-          properties:
-            friends:
-              type: array
-              items:
-                type: object
-            friend:
-              type: object
-    """
+      친구 목록 전체 조회
+      ---
+      tags:
+        - Friend
+      security:
+        - Bearer: []
+      description: >
+        친구 전체 목록 반환
+      responses:
+        200:
+          description: 조회 성공
+          schema:
+            type: object
+            properties:
+              friends:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    friend_id:
+                      type: integer
+                      description: 친구의 유저 ID
+                    nickname:
+                      type: string
+                      description: 친구의 닉네임
+                    profile_url:
+                      type: string
+                      description: 프로필 이미지 URL
+                    comment:
+                      type: string
+                      description: 상태 메시지 (info)
+                    email:
+                      type: string
+                      description: 이메일
+                    updated_at:
+                      type: string
+                      description: 친구 추가/수정 일시
+        500:
+          description: 서버 에러
+      """
     user_id = get_jwt_identity()
     
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
 
-    target_friend_id = request.args.get('friend_id')
-
     db = get_db()
     cursor = db.cursor()
 
-    base_query = """
+    query = """
         SELECT k.id AS friend_id, 
                k.spot_nickname AS nickname, 
                k.photo AS profile_url, 
@@ -75,11 +88,11 @@ def get_friends_list():
         FROM friend f
         JOIN kakao_mem k ON f.friend_id = k.id
         WHERE f.member_id = %s
+        ORDER BY f.updated_at DESC
     """
 
     try:
       # 전체 목록 조회
-      query = " ORDER BY f.updated_at DESC"
       cursor.execute(query, (user_id,))
       friends = cursor.fetchall()
 
@@ -89,61 +102,6 @@ def get_friends_list():
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
-
-
-
-# 특정 친구 상세 정보 조회 = 특정 친구 프로필 확인
-@bp.route('/main/profile/<int:friend_id>', methods=['GET'])
-@jwt_required()
-def get_friend_detail(friend_id):
-    """
-    특정 친구 프로필 상세 조회
-    ---
-    tags:
-      - Friend
-    security:
-      - Bearer: []
-    parameters:
-      - name: friend_id
-        in: path
-        type: integer
-        required: true
-        description: 친구 ID
-    responses:
-      200:
-        description: 조회 성공
-        schema:
-          type: object
-          properties:
-            user_id:
-              type: integer
-            spot_nickname:
-              type: string
-            profile_url:
-              type: string
-            comment:
-              type: string
-            email:
-              type: string
-      404:
-        description: 친구를 찾을 수 없음
-    """
-    db = get_db()
-    cursor = db.cursor()
-
-    # kakao_mem 테이블 사용, info가 comment 역할
-    query = """
-        SELECT id AS user_id, spot_nickname, photo AS profile_url, info AS comment, email
-        FROM kakao_mem
-        WHERE id = %s
-    """
-    cursor.execute(query, (friend_id,))
-    friend = cursor.fetchone()
-
-    if not friend:
-        return jsonify({'error': 'friend not found'}), 404
-
-    return jsonify(friend), 200
 
 
 # 친구 삭제 (언팔로우)
