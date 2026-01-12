@@ -26,6 +26,7 @@ def close_db(e=None):
         db.close()
 
 # 친구 목록 전체 조회
+# Q. 추가해야하는 목록: 공통 친구수, 공통친구 프로필 3개(업데이트순), follow t/f
 @bp.route('/friends/list', methods=['GET'])
 @jwt_required()
 def get_friends_list():
@@ -136,7 +137,6 @@ def delete_friend_unfollow(friend_id):
     cursor = db.cursor()
 
     try:
-        # friend 테이블, 컬럼명 userid, friendid
         cursor.execute("""
             DELETE FROM friend WHERE member_id = %s AND friend_id = %s
         """, (user_id, friend_id))
@@ -155,8 +155,7 @@ def delete_friend_unfollow(friend_id):
         db.rollback()
         return jsonify({"error": str(e)}), 500
 
-
-# 친구 신고 기능 - 추가만?
+# 친구 신고 기능 - Q. 기능 확정되는 대로 수정해야함
 @bp.route('/friends/report/<int:friend_id>', methods=['POST'])
 @jwt_required()
 def post_friend_report(friend_id):
@@ -347,8 +346,8 @@ def get_friend_places(friend_id):
     sort_by = request.args.get("sort", "latest")
     category_filter = request.args.get("category")
 
-    # 유효한 카테고리 목록
-    valid_categories = ["dessert", "etc", "cafe", "bar", "exhibition", "restaurant", "activity", "prop_shop", "clothing_store"]
+    # 유효한 카테고리 목록 : 'accessory','bar','cafe','cloth','etc','restaurant','dessert','exhibition','experience'
+    valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     db = get_db()
     cursor = db.cursor()
@@ -401,13 +400,14 @@ def get_friend_places(friend_id):
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
 
-    # 3. 데이터 가공 (JSON 구조 맞추기)
+    # 3. 데이터 가공
+    # Q. comment가 없는데 이거 추가해야하는지 확인
     result_places = []
     
     for row in rows:
         place_data = {
             "placeId": row['placeId'],
-            "gId": row['gid'], # gId가 명확하지 않아 placeId를 문자열로 대체 (필요시 수정)
+            "gId": row['gid'],
             "name": row['name'],
             "address": row['address'],
             "latitude": row['latitude'] if row['latitude'] else 0.0,
@@ -435,6 +435,7 @@ def get_friend_places(friend_id):
 @bp.route('/main/comment/<int:friend_id>', methods=['GET'])
 @jwt_required()
 def get_friend_comments(friend_id):
+  
     """
     친구가 남긴 코멘트 전체 조회
     ---
@@ -476,11 +477,15 @@ def get_friend_comments(friend_id):
                     type: string
                   isLiked:
                     type: boolean
-                    description: 내가 이 장소를 좋아요(place_like) 했는지 여부
+                    description: 내가 이 장소를 좋아요(place_like)했는지 여부
                   place:
                     type: object
+                    description: 장소 정보 객체
                   photos:
                     type: array
+                    description: 사진 URL 리스트
+                    items:
+                      type: string
     """
     
     # 1. 내 아이디 (장소 좋아요 여부 체크용)
@@ -502,7 +507,7 @@ def get_friend_comments(friend_id):
             p.name AS place_name,
             p.address AS place_address,
             p.list AS place_category,
-            p.photo AS place_thumbnail,
+            p.photo AS photo,
             CASE WHEN pl.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_liked
         FROM comments c
         JOIN kakao_mem k ON c.user_id = k.id
@@ -541,13 +546,28 @@ def get_friend_comments(friend_id):
                 "name": c.get("place_name"),
                 "address": c.get("place_address"),
                 "category": c.get("place_category"),
-                "thumbnailUrl": c.get("place_thumbnail")
             },
             "photos": photo_urls
         })
 
     return jsonify({
-        "friendId": friend_id, 
+        "friendId": friend_id,
         "count": len(results),
         "comments": results
     }), 200
+
+
+'''
+# 친구 팔로우
+@bp.route('/friends/follow/<int:friend_id>', methods=['GET'])
+@jwt_required()
+def get_friend_follow(friend_id):
+    return 0
+    
+
+# 게시물에 하트 - 범용적으로 친구, 다른 사람꺼도 되게 해야할 듯 일단?????
+@bp.route('/main/place_like/', methods=['GET'])
+@jwt_required()
+def get_place_like(friend_id):
+    return 0
+'''
