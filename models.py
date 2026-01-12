@@ -19,22 +19,30 @@ class InstaUrl(db.Model):
 class Place(db.Model):
     __tablename__ = 'place'
 
-    # id는 ERD에 맞춰 BIGINT PK로 설정
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
     
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     
-    name = db.Column(db.String(255), nullable=False)
+    name = db.Column(db.String(255)) 
     address = db.Column(db.String(255))
-    latitude = db.Column(db.Float)
+    
+    gid = db.Column(db.String(255), unique=True, nullable=False)
+
+    latitude = db.Column(db.Float)  
     longitude = db.Column(db.Float)
-    list = db.Column(db.String(255))    # 뭐임?
-    category = db.Column(db.String(255)) # new column for category
-    photo = db.Column(db.String(255))
+    
+    list = db.Column(db.Enum('accessory','bar','cafe','cloth','etc','restaurant')) 
+    photo = db.Column(db.String(1000))
+    
     rating_avg = db.Column(db.Float, default=0.0)
-    rating_count = db.Column(db.Integer, default=0)
-    saved_count = db.Column(db.Integer, default=0)
+    rating_count = db.Column(db.Integer, default=0, nullable=False)
+    saved_count = db.Column(db.Integer, default=0, nullable=False)
+    score = db.Column(db.Float, default=0.0, nullable=False)
+    search_count = db.Column(db.Integer, default=0, nullable=False)
+    place_area_id = db.Column(db.BigInteger, nullable=True)
+
+# list : exhibition, activitiy, prop_shop, clothing_store > cloth , dessert, cafe, bar, restaurant, etc
 
 # 3. url_place table
 class UrlPlace(db.Model):
@@ -64,3 +72,37 @@ class SavedPlace(db.Model):
     
     # 관계 설정 (저장된 장소 정보를 가져오기 위해)
     place = db.relationship('Place', backref='saved_by_users')
+
+# 5. kakao_mem table
+class KakaoMem(db.Model):
+    __tablename__ = 'kakao_mem'
+    
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    
+    info = db.Column(db.Text) 
+    
+    kakao_id = db.Column(db.String(255), unique=True, nullable=False)
+    nickname = db.Column(db.String(255), nullable=False) 
+    
+    password = db.Column(db.String(255)) 
+    photo = db.Column(db.String(255)) 
+    spot_nickname = db.Column(db.String(255))
+
+
+# 6. friend table
+class Friend(db.Model):
+    __tablename__ = 'friend'
+    
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    status = db.Enum('block','friend','give','waiting') # block 이면 친구 삭제되게 해야함
+    
+    friend_id = db.Column(db.BigInteger, db.ForeignKey('user.id')) 
+    
+    member_id = db.Column(db.BigInteger, nullable=True)  
+    
