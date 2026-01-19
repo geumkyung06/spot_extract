@@ -68,7 +68,10 @@ def get_friends_list():
                       description: 상태 메시지 (info)
                     email:
                       type: string
-                      description: 이메일
+                      description: 이메일( 이후 spot_id 로 변경 필요)
+                    status:
+                      type: string
+                      description: 친구 상태(block','friend','give','waiting')
                     updated_at:
                       type: string
                       description: 친구 추가/수정 일시
@@ -89,7 +92,8 @@ def get_friends_list():
                k.photo AS profile_url, 
                k.info AS comment, 
                k.email, 
-               f.updated_at
+               f.updated_at,
+               f.status
         FROM friend f
         JOIN kakao_mem k ON f.friend_id = k.id
         WHERE f.member_id = %s
