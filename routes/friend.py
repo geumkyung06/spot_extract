@@ -65,7 +65,7 @@ def get_friends_list():
                       description: 프로필 이미지 URL
                     comment:
                       type: string
-                      description: 상태 메시지 (info)
+                      description: 상태 메시지 (one_line)
                     spot_id:
                       type: string
                       description: spot_id
@@ -90,7 +90,7 @@ def get_friends_list():
         SELECT k.id AS friend_id, 
                k.spot_nickname AS nickname, 
                k.photo AS profile_url, 
-               k.info AS comment, 
+               k.one_line AS comment, 
                k.spot_id, 
                f.updated_at,
                f.status
