@@ -17,6 +17,7 @@ python-dotenv
 # HTTP Requests & APIs
 requests
 openai
+google.genai
 
 # Web Scraping & Parsing
 playwright
