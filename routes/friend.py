@@ -862,7 +862,7 @@ def post_place_like(place_id):
     장소 좋아요 토글 
     ---
     tags:
-      - Main
+      - Friend
     summary: 장소에 좋아요를 누르거나 취소
     description: 이미 좋아요가 있다면 삭제(False)하고, 없다면 생성(True)
     security:
