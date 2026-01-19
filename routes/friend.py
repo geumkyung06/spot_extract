@@ -371,7 +371,7 @@ def get_friend_places(friend_id):
     친구가 저장한 장소 목록 조회
     ---
     tags:
-      - Friend
+      - Main
     security:
       - Bearer: []
     parameters:
@@ -532,7 +532,7 @@ def get_friend_comments(friend_id):
     친구가 남긴 코멘트 전체 조회
     ---
     tags:
-      - Friend
+      - Main
     security:
       - Bearer: []
     parameters:
@@ -862,7 +862,7 @@ def post_place_like(place_id):
     장소 좋아요 토글 
     ---
     tags:
-      - Friend
+      - Main
     summary: 장소에 좋아요를 누르거나 취소
     description: 이미 좋아요가 있다면 삭제(False)하고, 없다면 생성(True)
     security:
