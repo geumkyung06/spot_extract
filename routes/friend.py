@@ -97,6 +97,7 @@ def get_friends_list():
         FROM friend f
         JOIN kakao_mem k ON f.friend_id = k.id
         WHERE f.member_id = %s
+          AND f.status = 'friend'
         ORDER BY f.updated_at DESC
     """
 
@@ -831,13 +832,13 @@ def post_decline_follow(friend_id):
         DELETE FROM friend
         WHERE member_id = %s AND friend_id = %s AND status = 'waiting'
         """
-        cursor.execute(waiting_query, (friend_id, user_id))
+        cursor.execute(waiting_query, (user_id, friend_id))
 
         giving_query = """
             DELETE FROM friend
             WHERE member_id = %s AND friend_id = %s AND status = 'give'
         """
-        cursor.execute(giving_query, (user_id, friend_id))
+        cursor.execute(giving_query, (friend_id, user_id))
         db.commit()
 
         if cursor.rowcount == 0:
