@@ -64,6 +64,10 @@ async def analyze_instagram():
               items:
                 type: object
                 properties:
+                  id:
+                    type: integer
+                    description: 장소 ID (DB PK)
+                    example: 123
                   name:
                     type: string
                     description: 장소명
@@ -74,19 +78,22 @@ async def analyze_instagram():
                     example: "서울 강남구 강남대로 123"
                   list:
                     type: string
-                    description: 카테고리 (cafe, restaurant, etc)
-                    example: "cafe"
+                    description: 카테고리 (콤마로 구분된 문자열)
+                    example: "카페,디저트"
                   latitude:
                     type: number
                     format: float
+                    description: 위도
                     example: 37.498095
                   longitude:
                     type: number
                     format: float
+                    description: 경도
                     example: 127.027610
                   rating_avg:
                     type: number
-                    description: 구글 평점
+                    format: float
+                    description: 구글 평점 (0.0 ~ 5.0)
                     example: 4.5
                   rating_count:
                     type: integer
@@ -94,8 +101,8 @@ async def analyze_instagram():
                     example: 120
                   photo:
                     type: string
-                    description: 대표 이미지 경로
-                    example: "/static/uploads/place_uuid.jpg"
+                    description: 대표 이미지 URL 또는 경로
+                    example: "https://example.com/image.jpg"
       400:
         description: 잘못된 요청 (URL 누락, 유효하지 않은 URL, 장소 게시물 아님)
         schema:
@@ -198,7 +205,8 @@ async def analyze_instagram():
         print(f"Error: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-def check_db_have_url(post_places = [], url=""):
+def check_db_have_url(url=""):
+    post_places = []
     # DB에 이미 URL이 있는지 확인
     #existing_insta = UrlPlace.query.filter_by(url=url).all() # 해당 url 속 여러 장소 placeid_id 전부 가져오기
 
@@ -262,7 +270,7 @@ def check_db_have_place(candidates=[]): # 장소명, 주소 한번에 보내기
                 "rating_count": target_place.rating_count,
                 "photo": target_place.photo    
                 }   
-            post_places.append(place_data)
+            post_places.extend(place_data)
         else:
             print(f"검색 필요: {input_name}")
 
@@ -305,13 +313,7 @@ async def check_caption_place( url=""):
     캡션에서 장소 추출
     '''
     try:
-        data = request.get_json()
-        if not data:
-            
-            return [], ""
-            
-        url = data.get('url', 'No URL') 
-        if not url or url == 'No URL':
+        if not url == 'No URL':
             print("URL이 비어있습니다.")
             return [], ""
         
@@ -335,9 +337,6 @@ async def check_caption_place( url=""):
         return [], ""
 
 async def check_ocr_place(url=""):
-    data = request.get_json()
-    url = data.get('url')
-
     if not url:
         return []
 
@@ -398,23 +397,29 @@ async def check_ocr_place(url=""):
         return []
 
 def save_places_to_db(new_places = []): 
-            for p_info in new_places:
-                place = Place.query.filter(
-                    Place.name == p_info['name'],
-                    Place.address == p_info['address']
-                ).first()
+    try :
+        for p_info in new_places:
+            place = Place.query.filter(
+                Place.name == p_info['name'],
+                Place.address == p_info['address']
+            ).first()
 
-                if not place:
-                    place = Place(
-                        name=p_info['name'],
-                        address=p_info['address'],
-                        list=p_info['list'],
-                        latitude=p_info['latitude'],
-                        longitude=p_info['longitude'],
-                        rating=p_info['rating'],
-                        rating_count=p_info['rating_count'],
-                        photo=p_info.get('photo', '')
-                    )
-                    db.session.add(place)
-                    db.session.flush()  # flush를 해야 place.id가 생성됨
-                    print(f"[DB] Place saved (ID: {place.id})")
+            if not place:
+                place = Place(
+                    name=p_info.get('name'),
+                    address=p_info.get('address'),
+                    list=p_info.get('list'),
+                    latitude=p_info.get('latitude'),
+                    longitude=p_info.get('longitude'),
+                    rating=p_info.get('rating'),
+                    rating_count=p_info.get('rating_count'),
+                    photo=p_info.get('photo', '')
+                )
+                db.session.add(place)
+                db.session.flush()  # flush를 해야 place.id가 생성됨
+
+                print(f"[DB] Place saved (ID: {place.id})")
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"DB 저장 실패: {e}")
