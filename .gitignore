@@ -24,3 +24,5 @@ test.py
 upstage.py
 api.py
 downloaded_images
+services/google_place_enricher.py
+ocr_captions
