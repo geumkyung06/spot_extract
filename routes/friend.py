@@ -264,7 +264,7 @@ def post_friend_block(friend_id):
     try:
         # 1. 차단 목록 status update
         # member_id, friend_id, status 순서로 매핑
-        query = """"
+        query = """
         INSERT INTO friend (member_id, friend_id, status, created_at, updated_at)
         VALUES (%s, %s, 'block', NOW(), NOW())
         ON DUPLICATE KEY UPDATE
@@ -322,38 +322,10 @@ def post_friend_unblock(friend_id):
     cursor = db.cursor()
 
     try:
-        '''# 1. 친구 관계였으면 복귀
-        # Q. 물어봐야함!!!!!!!!
+        # 친구 테이블에서 아예 삭제
         query = """
-            SELECT status FROM friend 
-            WHERE member_id = %s AND friend_id = %s
-        """
-        cursor.execute(query, (friend_id, user_id))
-        reverse_relation = cursor.fetchone()
-
-        # 역방향 조회: member_id가 friend_id & friend_id가 user_id인 행을 찾아야 함
-        if reverse_relation and reverse_relation['status'] == 'friend':
-            restore_query = """
-                UPDATE friend 
-                SET status = 'friend', updated_at = NOW()
-                WHERE member_id = %s AND friend_id = %s AND status = 'block'
-            """
-            cursor.execute(restore_query, (user_id, friend_id))
-            msg = "Relationship restored to friend"
-  
-        else:
-            # 상대방 목록에 내가 없음 >> 관계 삭제 (DELETE)
-            delete_query = """
-                DELETE FROM friend 
-                WHERE member_id = %s AND friend_id = %s AND status = 'block'
-            """
-            cursor.execute(delete_query, (user_id, friend_id))
-            msg = "Unblocked and relationship deleted"'''
-          
-        # 2. 친구 테이블에서 아예 삭제
-        query = """
-        DELETE INTO friend (member_id, friend_id, status, created_at, updated_at)
-        VALUES (%s, %s, 'block', NOW(), NOW())
+            DELETE FROM friend
+            WHERE member_id = %s AND friend_id = %s AND status = 'block'
         """
         cursor.execute(query, (user_id, friend_id))
 
@@ -686,7 +658,7 @@ def post_request_follow(friend_id):
         description: 서버 에러
     """
     user_id = get_jwt_identity() 
-    
+
     print(f"User ID: {user_id} (Type: {type(user_id)})")
     print(f"Friend ID: {friend_id} (Type: {type(friend_id)})")
     
