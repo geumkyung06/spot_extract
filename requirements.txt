@@ -18,11 +18,15 @@ python-dotenv
 requests
 openai
 google.genai
+google
 
 # Web Scraping & Parsing
 playwright
 beautifulsoup4
 aiohttp
+Pillow
 
 #async
 asgiref
+asyncio
+async
