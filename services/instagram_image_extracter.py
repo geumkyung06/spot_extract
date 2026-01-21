@@ -1,6 +1,7 @@
 from flask import request
 import json, os, re, io
 import asyncio, aiohttp
+import uuid
 from datetime import datetime
 from playwright.async_api import async_playwright
 from google import genai
@@ -13,6 +14,7 @@ from .browser import BrowserManager
 load_dotenv()
 
 SAVE_FOLDER = "downloaded_images"
+os.makedirs(SAVE_FOLDER, exist_ok=True)
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -156,7 +158,17 @@ async def extract_images(browser_manager: BrowserManager, post_url: str):
     return ordered_images
 
 async def process_download(session, url, index):
-    filename = f"image_{index+1}.jpg"
+    pattern = r'/(?:p|reel)/([^/?]+)'
+    match = re.search(pattern, url)
+
+    # url별 파일 이름 안 겹치게
+    if match:
+        shortcut = match.group(1)
+    else:
+        # 실패했다면 랜덤 문자열로 대체 (에러 방지용)
+        shortcut = f"unknown_{uuid.uuid4().hex[:8]}"
+        
+    filename = f"image_{shortcut}_{index+1}.jpg"
     filepath = os.path.join(SAVE_FOLDER, filename)
     try:
         async with session.get(url) as response:
@@ -204,4 +216,5 @@ async def extract_insta_images(url=""):
 
     finally:
         await manager.stop()
+        # ocr 끝난 후 이미지 삭제
         return ocr_results # JSON 형태 {'place': '아우스페이스', 'address': '경기도 파주시 탄현면 새오리로 145-21'}
