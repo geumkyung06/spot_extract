@@ -1,157 +1,250 @@
-import os
+import asyncio
+import json
 import time
-import uuid
-import base64
-import requests
-import shutil
-from typing import List, Dict
-from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright, TimeoutError
+import os
+import re
+import io
+from flask import request
+import aiohttp
+from datetime import datetime
+from playwright.async_api import async_playwright
+from google import genai
+from google.genai import types
+from PIL import Image
+from dotenv import load_dotenv
 
-# ───────────────────────────────────────────────────────────────
-# 설정
-# ───────────────────────────────────────────────────────────────
-# 현재 파일 위치 기준 'temp_images' 폴더 생성
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMP_DIR = os.path.join(BASE_DIR, "temp_images")
-os.makedirs(TEMP_DIR, exist_ok=True)
+from .browser import BrowserManager
 
-# ───────────────────────────────────────────────────────────────
-# 1. Instagram 데이터 추출 (Playwright + BS4)
-# ───────────────────────────────────────────────────────────────
-def extract_post_data(post_url: str) -> Dict:
-    """
-    Playwright로 URL에 접속하여 이미지 URL 리스트와
-    BeautifulSoup으로 캡션(글)을 추출하여 반환합니다.
-    """
-    with sync_playwright() as p:
-        # AWS 서버(Linux) 호환을 위해 헤드리스 모드 필수
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
-        )
-        page = context.new_page()
-        
-        result = {
-            "caption": "",
-            "images": []
+load_dotenv()
+
+SAVE_FOLDER = "downloaded_images"
+
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+ocr_config = types.GenerateContentConfig(
+    temperature=0.1,
+    response_mime_type="application/json",
+    response_schema={
+        "type": "ARRAY",
+        "items": {       
+            "type": "OBJECT",
+            "properties": {
+                "place": {"type": "STRING"},
+                "address": {"type": "STRING"}
+            },
+            "required": ["place", "address"]
         }
+    }
+)
 
-        try:
-            # 60초 타임아웃 설정
-            page.goto(post_url, timeout=60000, wait_until="networkidle")
-            time.sleep(2) # 로딩 안정화 대기
+# 동시 작업 제한(3)
+sem = asyncio.Semaphore(3)
 
-            # 팝업(로그인 유도 등) 제거 시도
-            try:
-                page.evaluate("document.querySelectorAll('div[role=\"dialog\"]').forEach(e => e.remove());")
-            except: pass
-
-            # --- 이미지 URL 수집 ---
-            image_urls = []
-            visited = set()
+# 이미지 처리
+def crop_and_save_image(image_data, filepath, cut_height=250):
+    try:
+        with Image.open(io.BytesIO(image_data)) as img:
+            w, h = img.size
+        
+            # 윗부분 크롭
+            if h > cut_height:
+                crop_box = (0, cut_height, w, h)
+                img = img.crop(crop_box)
             
-            try:
-                # 메인 이미지 컨테이너 대기
-                root_div = page.wait_for_selector("div.x6s0dn4.x78zum5.xdt5ytf.xdj266r", timeout=10000)
-                
-                while True:
-                    # 현재 슬라이드에 보이는 이미지 찾기
-                    img = root_div.query_selector("div._aagv img[src*='scontent']")
-                    if img:
-                        src = img.get_attribute("src")
-                        if src and src not in visited:
-                            visited.add(src)
-                            image_urls.append(src)
-                    
-                    # 다음 버튼 클릭
-                    next_btn = root_div.query_selector('button[aria-label="다음"], button[aria-label="Next"]')
-                    if not next_btn:
-                        break
-                    try:
-                        next_btn.click(force=True)
-                        time.sleep(1) 
-                    except:
-                        break
-            except TimeoutError:
-                print("이미지 컨테이너를 찾을 수 없거나 단일 이미지입니다.")
-
-            result["images"] = image_urls
-
-            # --- 캡션 추출 (BeautifulSoup) ---
-            html_content = page.content()
-            soup = BeautifulSoup(html_content, "html.parser")
+            # 리사이징 (LANCZOS -> BILINEAR로 변경하여 속도 향상)
+            max_size = 800
+            if max(img.size) > max_size:
+                ratio = max_size / max(img.size)
+                new_size = (int(img.width * ratio), int(img.height * ratio))
+                img = img.resize(new_size, Image.Resampling.BILINEAR)
             
-            caption = ""
-            # og:description 태그가 가장 깔끔함
-            meta_desc = soup.find("meta", property="og:description")
-            if meta_desc:
-                caption = meta_desc["content"]
-            else:
-                title_tag = soup.find("title")
-                if title_tag:
-                    caption = title_tag.get_text()
+            # 흑백 변환
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img = img.convert("L")
+
+            # 저장 (optimize=True 제거하여 저장 속도 향상, quality=50 유지)
+            img.save(filepath, format='JPEG', quality=50)
             
-            result["caption"] = caption
+            return filepath
 
-        except Exception as e:
-            print(f"Playwright 에러: {e}")
-        finally:
-            browser.close()
+    except Exception as e:
+        print(f"이미지 처리 에러: {e}")
+        return None
 
+# OCR 함수
+def gemini_flash_ocr(image_path):
+    if not os.path.exists(image_path):
+        return {"error": "이미지 파일이 없습니다."}
+
+    try:
+        with Image.open(image_path) as img:
+            response = client.models.generate_content(
+            model='gemini-2.5-flash-lite',
+            contents=[
+                "이 이미지에서 가게의 '상호명(name)'과 '주소(address)'를 식별해서 추출해줘.",
+                "만약 이미지에서 텍스트를 찾을 수 없거나, 해당 항목이 명확하지 않다면 억지로 만들지 말고 빈 문자열(\"\")로 채워.",
+                img
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json", 
+                response_schema={
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "name": {
+                                "type": "STRING", 
+                                "description": "가게 이름. 간판이나 로고에 있는 텍스트. 없으면 빈 문자열."
+                            },
+                            "address": {
+                                "type": "STRING", 
+                                "description": "도로명 주소 또는 지번 주소. 없으면 빈 문자열."
+                            }
+                        },
+                        "required": ["name"] 
+                    }
+                }
+            )
+        )
+        data = json.loads(response.text)
+
+        # 가게명 없는 건 제외
+        valid_data = [item for item in data if item.get('name') and item['name'].strip() != ""]
+
+        for item in valid_data:
+            raw_address = item.get('address', '')
+            raw_name = item.get('name', '')
+
+            clean_addr = re.sub(r'#\S+', '', raw_address)
+            clean_addr = re.sub(r'[^\w\s\(\)\-,.]', '', clean_addr) 
+
+            clean_name = raw_name.replace('#', '')
+            clean_name = re.sub(r'[^\w\s\(\)\-,.&\'\+]', '', clean_name)
+            
+            item['address'] = clean_addr.strip()
+            item['name'] = clean_name.strip()
+            
+        return valid_data
+
+    except Exception as e:
+        return {"error": f"에러 발생: {str(e)}"}
+
+# 비동기 처리
+async def safe_ocr(image_path):
+    async with sem:
+        filename = os.path.basename(image_path)
+        
+        start = time.time()
+        start_str = datetime.now().strftime("%H:%M:%S.%f")[:-4]
+    
+        print(f"[Start] {start_str} | {filename} 분석 시작...")
+        result = await asyncio.to_thread(gemini_flash_ocr, image_path)
+        
+        end = time.time()
+        end_str = datetime.now().strftime("%H:%M:%S.%f")[:-4]
+        duration = end - start
+
+        print(f"[End] {end_str} | {filename} 완료 ({duration:.2f}s)")
+        
         return result
 
+# 이미지 다운로드
+async def extract_images(browser_manager: BrowserManager, post_url: str):
+    ordered_images = [] 
+    seen_urls = set()
 
-# ───────────────────────────────────────────────────────────────
-# 2. 이미지 임시 폴더 다운로드 (UUID 파일명)
-# ───────────────────────────────────────────────────────────────
-def download_images_to_temp(urls: List[str]) -> List[str]:
-    saved_paths = []
-    
-    for url in urls:
-        try:
-            # 동시성 문제 해결을 위해 UUID 사용
-            filename = f"{uuid.uuid4()}.jpg"
-            filepath = os.path.join(TEMP_DIR, filename)
-            
-            r = requests.get(url, timeout=10)
-            if r.status_code == 200:
-                with open(filepath, "wb") as f:
-                    f.write(r.content)
-                saved_paths.append(filepath)
-            else:
-                print(f"이미지 다운로드 실패 Code: {r.status_code}")
-        except Exception as e:
-            print(f"다운로드 중 에러: {e}")
-            continue
+    # 기존 context에서 페이지만 새로 엶
+    page = await browser_manager.context.new_page()
 
-    return saved_paths
+    await page.route("**/*", lambda route: 
+        route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
+        else route.continue_()
+    )
 
-
-# ───────────────────────────────────────────────────────────────
-# 3. GPT Vision 전송용 Base64 인코딩
-# ───────────────────────────────────────────────────────────────
-def encode_image_to_base64(image_path: str) -> str:
-    """이미지 파일을 읽어서 Base64 문자열로 반환"""
-    if not os.path.exists(image_path):
-        return None
     try:
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
+        await page.goto(post_url, wait_until="domcontentloaded", timeout=8000)
+        content = await page.content()
+
+        pattern = r'(https:\\/\\/scontent[^\s"]+)'
+        matches = re.findall(pattern, content)
+        dimension_pattern = re.compile(r'[ps]\d{2,4}x\d{2,4}')
+
+        for raw_url in matches:
+            url = raw_url.encode('utf-8').decode('unicode_escape').replace(r'\/', '/')
+            if "/t51.2885-19/" in url: continue
+            if any(x in url for x in ["vp/", "profile", "null", "sha256"]): continue
+            if dimension_pattern.search(url): continue
+            if "c0." in url: continue
+
+            if url not in seen_urls:
+                seen_urls.add(url)
+                ordered_images.append(url)
+
     except Exception as e:
-        print(f"이미지 인코딩 실패 ({image_path}): {e}")
-        return None
+        print(f"추출 중 에러: {e}")
+    finally:
+        await page.close() # 페이지만 닫음
 
+    return ordered_images
 
-# ───────────────────────────────────────────────────────────────
-# 4. 파일 청소 (라우트에서 사용)
-# ───────────────────────────────────────────────────────────────
-def delete_temp_files(paths: List[str]):
-    """리스트에 있는 파일들을 디스크에서 삭제합니다."""
-    for p in paths:
-        try:
-            if os.path.exists(p):
-                os.remove(p)
-                print(f"🗑️ 임시 파일 삭제: {os.path.basename(p)}")
-        except Exception as e:
-            print(f"파일 삭제 에러: {e}")
+async def process_download(session, url, index):
+    filename = f"image_{index+1}.jpg"
+    filepath = os.path.join(SAVE_FOLDER, filename)
+    try:
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.read()
+                # 이미지 처리는 비동기로 3개씩
+                path = await asyncio.to_thread(crop_and_save_image, data, filepath, cut_height=150)
+                return path
+    except Exception as e:
+        print(f"다운로드 에러: {e}")
+    return None
+
+async def extract_insta_images(url=""):
+    # 브라우저 초기화 (서버 시작할 때만 한 번 실행)
+    manager = BrowserManager()
+    await manager.start()
+
+    data = request.get_json()
+    post_url = data.get('url')
+    
+    try:
+        start_total = time.time()
+        
+        print("이미지 추출 중...")
+        image_urls = await extract_images(manager, post_url)
+        print(f"{len(image_urls)}장 추출 완료")
+
+        if not os.path.exists(SAVE_FOLDER):
+            os.makedirs(SAVE_FOLDER)
+
+        saved_files = []
+        if image_urls:
+            # 다운로드 및 전처리 (동시 실행)
+            print("이미지 다운로드 및 변환 중...")
+            connector = aiohttp.TCPConnector(limit=10)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                tasks = [process_download(session, url, i) for i, url in enumerate(image_urls)]
+                results = await asyncio.gather(*tasks)
+                
+                saved_files = [r for r in results if r is not None]
+
+            # OCR 비동기 수행
+            print(f"OCR 분석 시작 ({len(saved_files)}장)...")
+            ocr_start = time.time()
+            
+            ocr_tasks = [safe_ocr(filepath) for filepath in saved_files]
+            ocr_results = await asyncio.gather(*ocr_tasks)
+            
+            ocr_end = time.time()
+            
+            print(f"OCR 처리 시간: {ocr_end - ocr_start:.2f}s")
+
+        end_total = time.time()
+        print(f"총 소요 시간: {end_total - start_total:.2f}s")
+
+    finally:
+        await manager.stop()
+        return ocr_results # JSON 형태 {'place': '아우스페이스', 'address': '경기도 파주시 탄현면 새오리로 145-21'}
