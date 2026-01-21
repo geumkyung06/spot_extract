@@ -687,7 +687,10 @@ def post_request_follow(friend_id):
     """
     user_id = get_jwt_identity() 
     
-    if user_id == friend_id:
+    print(f"User ID: {user_id} (Type: {type(user_id)})")
+    print(f"Friend ID: {friend_id} (Type: {type(friend_id)})")
+    
+    if int(user_id) == int(friend_id):
         return jsonify({'message': 'It is impossible to follow yourself'}), 400
 
     db = get_db()
