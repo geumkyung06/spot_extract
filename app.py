@@ -15,13 +15,14 @@ import asyncio
 # 모델과 DB 객체 임포트
 from models import db
 
+load_dotenv()
+
 # 라우트 임포트
 from routes.instagram import bp as instagram_bp
 from routes.places import user_places_bp
 from routes.friend import bp as friend_bp
 
-# .env 파일 로드
-load_dotenv()
+
 
 # pymysql 설정
 pymysql.install_as_MySQLdb()

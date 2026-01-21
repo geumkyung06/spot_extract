@@ -4,11 +4,8 @@ import random
 
 from flask import Blueprint, jsonify, request, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from dotenv import load_dotenv
 
 from models import db, PlaceLike, Place, Friend
-
-load_dotenv()
 
 bp = Blueprint('friend', __name__)
 

@@ -7,11 +7,8 @@ from playwright.async_api import async_playwright
 from google import genai
 from google.genai import types
 from PIL import Image
-from dotenv import load_dotenv
 
 from .browser import BrowserManager
-
-load_dotenv()
 
 SAVE_FOLDER = "downloaded_images"
 os.makedirs(SAVE_FOLDER, exist_ok=True)
@@ -167,7 +164,7 @@ async def process_download(session, url, index):
     else:
         # 실패했다면 랜덤 문자열로 대체 (에러 방지용)
         shortcut = f"unknown_{uuid.uuid4().hex[:8]}"
-        
+
     filename = f"image_{shortcut}_{index+1}.jpg"
     filepath = os.path.join(SAVE_FOLDER, filename)
     try:

@@ -4,9 +4,7 @@ import re
 import os
 from playwright.async_api import async_playwright
 from openai import OpenAI
-from dotenv import load_dotenv
 
-load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 KOREAN_REGIONS = [

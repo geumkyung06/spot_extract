@@ -5,9 +5,6 @@ import time
 import uuid
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import quote_plus
-from dotenv import load_dotenv
-
-load_dotenv()
 
 SEARCH_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 SEARCH_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
