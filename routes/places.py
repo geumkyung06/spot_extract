@@ -2,22 +2,23 @@ import logging
 from flask import Blueprint, request, jsonify, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-from models import db, Place, SavedPlace # models.py에서 임포트
-
-user_places_bp = Blueprint("user_places", __name__, url_prefix='/places')
+from models import db, Place, SavedPlace, SavedSeq
+user_places_bp = Blueprint("saved_places", __name__, url_prefix='/places')
 
 
 @user_places_bp.route("/", methods=["POST"])
 @jwt_required()
 def save_user_places():
     """
-    장소 보관함 저장
+    유저별 장소 저장
     ---
     tags:
-      - User Places
+      - Saved Places
+    consumes:
+      - application/json
     parameters:
-      - name: body
-        in: body
+      - in: body
+        name: body
         required: true
         schema:
           type: object
@@ -29,9 +30,14 @@ def save_user_places():
               type: array
               items:
                 type: integer
-              example:
-                - 1
-                - 2
+              example: [1, 2]
+            places:
+              type: array
+              items:
+                type: object
+                properties:
+                  place_id:
+                    type: integer
     responses:
       200:
         description: 저장 성공
@@ -40,7 +46,7 @@ def save_user_places():
       500:
         description: 서버 에러
     """
-    
+
     try:
         user_id = get_jwt_identity() 
 
@@ -63,7 +69,7 @@ def save_user_places():
 
         saved_count = 0
         
-        # 2. DB 저장 (Upsert: 없으면 넣고, 있으면 스킵)..?
+        # DB 저장
         for pid in target_ids:
             # 장소가 실제로 존재하는지 확인
             place_exists = Place.query.get(pid)
@@ -90,12 +96,17 @@ def save_user_places():
                 
                 saved_count += 1
 
+        if saved_count > 0:
+            seq_row = SavedSeq.query.first() 
+            if seq_row:
+                seq_row.next_val = (seq_row.next_val or 0) + saved_count
+
         db.session.commit()
 
         return jsonify({
             "status": "success",
             "saved_count": saved_count,
-            "message": f"{saved_count}개의 장소가 저장되었습니다."
+            "message": f"saved {saved_count} place"
         }), 200
 
     except Exception as e:
@@ -103,7 +114,7 @@ def save_user_places():
         return jsonify({"error": str(e)}), 500
 
 
-@user_places_bp.route("/", methods=["GET"])
+'''@user_places_bp.route("/", methods=["GET"])
 @jwt_required()
 def list_my_places():
     """
@@ -151,7 +162,7 @@ def list_my_places():
                     "place_id": place_info.id,
                     "name": place_info.name,
                     "address": place_info.address,
-                    "category": place_info.list,
+                    "list": place_info.list, # list로 변경해야함
                     "latitude": place_info.latitude,
                     "longitude": place_info.longitude,
                     "thumbnail": place_info.photo,
@@ -167,4 +178,4 @@ def list_my_places():
         }), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500'''
