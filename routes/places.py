@@ -31,13 +31,6 @@ def save_user_places():
               items:
                 type: integer
               example: [1, 2]
-            places:
-              type: array
-              items:
-                type: object
-                properties:
-                  place_id:
-                    type: integer
     responses:
       200:
         description: 저장 성공
@@ -54,16 +47,17 @@ def save_user_places():
         save_type = body.get("save_type", "spot") # 기본값 설정 - 인스타에선 "instagram"
 
         target_ids = set()
+                
+        input_ids = body.get("place_ids", [])
         
-        if "places" in body and isinstance(body["places"], list):
-            for item in body["places"]:
-                if isinstance(item, dict) and item.get("place_id"):
-                    target_ids.add(int(item["place_id"]))
+        if isinstance(input_ids, list):
+            for pid in input_ids:
+                try:
+                    if pid:
+                        target_ids.add(int(pid))
+                except ValueError:
+                    continue
         
-        elif "place_ids" in body and isinstance(body["place_ids"], list):
-            for pid in body["place_ids"]:
-                target_ids.add(int(pid))
-
         if not target_ids:
             return jsonify({"error": "No place_ids provided"}), 400
 
