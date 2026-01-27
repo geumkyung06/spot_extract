@@ -135,5 +135,6 @@ class Comment(db.Model):
 
 class SavedSeq(db.Model):
     __tablename__ = 'saved_place_seq'
-
-    next_val = db.Column(db.BigIntenger, nullable=True)
+    
+    id = db.Column(db.Integer, primary_key=True) 
+    next_val = db.Column(db.BigInteger, default=0)
