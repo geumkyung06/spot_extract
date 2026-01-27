@@ -103,9 +103,9 @@ class Friend(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     status = db.Enum('block','friend','give','waiting') # block 이면 친구 삭제되게 해야함
     
-    friend_id = db.Column(db.BigInteger, db.ForeignKey('user.id')) 
+    friend_id = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id')) 
     
-    member_id = db.Column(db.BigInteger, nullable=True)  
+    member_id = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id'))  
     
 # 7. place_like -> 하트
 class PlaceLike(db.Model):
