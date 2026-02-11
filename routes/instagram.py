@@ -4,7 +4,7 @@ import asyncio
 import aiohttp
 import time
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt_identity
 import re
 
 from services.instagram_text_parser import get_caption_no_login, split_caption, extract_places_with_gpt, is_place_post
@@ -125,9 +125,16 @@ async def analyze_instagram():
             message:
               type: string
     """
+    user_id = get_jwt_identity() 
+    
+    print(f"로그인한 유저 ID: {user_id}")
+    if not user_id:
+        return jsonify({'status':'failed', 'message': 'login need'}), 400
     try:
         data = request.get_json()
         url = data.get('url') # 프론트한테서 받아옴
+        start = time.time()
+        print(f"url: {url}")
         if not url:
             return jsonify({'status': 'error', 'message': 'URL is required'}), 400
 
@@ -136,7 +143,7 @@ async def analyze_instagram():
         post_places = [] # 프론트에 보낼 장소들 (name, address, category(list), rating_avg, rating_count)
         new_places = [] # db에 새로 저장할 장소들
 
-        # 0. 장소 설명 게시물인지 확인
+        # 0. 장소 설명 게시물인지 확인 # 나중에 규칙 기반으로 변경
         is_place = is_place_post(url)
         
         if not is_place:
@@ -152,6 +159,7 @@ async def analyze_instagram():
         else: 
             return jsonify({'status': 'error', 'message': 'Invalid URL'}), 400
         
+        print(f"shortcut: {shortcut}")
         db_places = check_db_have_url(shortcut)
         # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
         # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
@@ -162,7 +170,7 @@ async def analyze_instagram():
             print("DB에 없음. 캡션 분석 시도")
             # 캡션 파싱 로직
             candidates, caption = await check_caption_place(url)
-            
+
             #url_place에 저장
             try:
                 save_caption = caption[:252] + "..." if caption and len(caption) > 255 else caption
@@ -188,6 +196,7 @@ async def analyze_instagram():
             else:
                 return jsonify({'status':'failed', 'message': "can not found places"}), 404
             
+            print(f"search list: {to_search_naver}")
             if to_search_naver:
                 search_results = process_places(to_search_naver)
                 
@@ -196,7 +205,8 @@ async def analyze_instagram():
 
             if new_places:
                 save_places_to_db(new_places)
-    
+        end = time.time()
+        print(f"time: {end-start: .2f}s")
         # 프론트에 보낼 장소 정보
         return jsonify({'status':'success', 'results':post_places}), 200
 
@@ -211,7 +221,14 @@ def check_db_have_url(url=""):
     #existing_insta = UrlPlace.query.filter_by(url=url).all() # 해당 url 속 여러 장소 placeid_id 전부 가져오기
 
     # 해당 url 속 여러 장소 placeid_id 전부 가져오기 +  placeid_id / id 비교
-    existing_insta = Place.query.join(UrlPlace, Place.id == UrlPlace.placeid_id).filter(UrlPlace.url == url).all()
+    existing_insta = (
+        db.session.query(Place)
+        .join(UrlPlace, Place.id == UrlPlace.placeid_id)
+        .join(InstaUrl, UrlPlace.instaurl_id == InstaUrl.id) # InstaUrl까지 연결
+        .filter(InstaUrl.url == url) # InstaUrl 테이블의 url 컬럼 비교
+        .all()
+    )
+
     if existing_insta:
         # 이미 존재하면 해당 장소 불러오기
 
@@ -270,11 +287,11 @@ def check_db_have_place(candidates=[]): # 장소명, 주소 한번에 보내기
                 "rating_count": target_place.rating_count,
                 "photo": target_place.photo    
                 }   
-            post_places.extend(place_data)
+            post_places.append(place_data) # extend 비교, 문제 생기는지 확인...
         else:
             print(f"검색 필요: {input_name}")
 
-            no_places.append(input_name) 
+            no_places.append([input_name, input_addr]) 
         
     return post_places, no_places
 
@@ -313,11 +330,11 @@ async def check_caption_place( url=""):
     캡션에서 장소 추출
     '''
     try:
-        if not url == 'No URL':
+        if not url:
             print("URL이 비어있습니다.")
             return [], ""
         
-        caption = asyncio.run(get_caption_no_login(url))
+        caption = await get_caption_no_login(url)
         
         if not caption:
             print("캡션을 찾을 수 없습니다.")
@@ -328,8 +345,8 @@ async def check_caption_place( url=""):
 
         if not places:
             places = extract_places_with_gpt(caption)'''
-        places = extract_places_with_gpt(caption)
-
+        places = extract_places_with_gpt(caption) # 비동기로 변경해야함
+        print(f"places: {places}")
         return places, caption
 
     except Exception as e:
@@ -371,7 +388,7 @@ async def check_ocr_place(url=""):
             return []
 
         # OCR 수행
-        ocr_tasks = [safe_ocr(filepath) for filepath in saved_files]
+        ocr_tasks = [safe_ocr(filepath) for filepath in saved_files[:5]] # 일단 5장만
         ocr_results_list = await asyncio.gather(*ocr_tasks)
 
         # 결과 필터링 및 병합
@@ -411,7 +428,7 @@ def save_places_to_db(new_places = []):
                     list=p_info.get('list'),
                     latitude=p_info.get('latitude'),
                     longitude=p_info.get('longitude'),
-                    rating=p_info.get('rating'),
+                    rating_avg=p_info.get('rating_avg'),
                     rating_count=p_info.get('rating_count'),
                     photo=p_info.get('photo', '')
                 )

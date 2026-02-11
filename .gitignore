@@ -21,9 +21,11 @@ gemini.py
 gpt.py
 insta.py
 test.py
-upstage.py
+ttest.py
 api.py
 downloaded_images
 services/google_place_enricher.py
 ocr_captions
 .vscode
+instance
+tt.py

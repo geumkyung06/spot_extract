@@ -1,7 +1,18 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+from sqlalchemy import BigInteger, Integer
+from sqlalchemy.ext.compiler import compiles
 
 db = SQLAlchemy()
+
+# 👇 [추가 2] 이 함수를 추가하세요 (모델 클래스 정의하기 전에)
+@compiles(BigInteger, 'sqlite')
+def compile_big_int_sqlite(type_, compiler, **kw):
+    """
+    SQLite 환경에서는 BigInteger를 INTEGER로 변환하여
+    AUTOINCREMENT가 정상 작동하도록 함
+    """
+    return 'INTEGER'
 
 # insta_url table
 class InstaUrl(db.Model):
@@ -27,7 +38,7 @@ class Place(db.Model):
     name = db.Column(db.String(255)) 
     address = db.Column(db.String(255))
     
-    gid = db.Column(db.String(255), unique=True, nullable=False)
+    gid = db.Column(db.String(255), unique=True, nullable=True)
 
     latitude = db.Column(db.Float)  
     longitude = db.Column(db.Float)
