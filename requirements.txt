@@ -11,6 +11,7 @@ boto3
 PyMySQL
 mysql-connector-python
 cryptography
+redis
 
 # Environment Variables
 python-dotenv
