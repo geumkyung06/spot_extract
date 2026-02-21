@@ -60,6 +60,10 @@ def create_app():
             "description": "Instagram & Place API with JWT Authorization",
             "version": "1.0.0"
         },
+
+        "host": "http://52.78.23.132/8001", 
+        "basePath": "/", 
+        "schemes": ["http"],
         "securityDefinitions": {
             "Bearer": {
                 "type": "apiKey",
@@ -68,7 +72,6 @@ def create_app():
                 "description": "JWT Authorization header using the Bearer scheme. Example: \"Bearer {token}\""
             }
         },
-       
         "security": [{"Bearer": []}] 
     }
 
