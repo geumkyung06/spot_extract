@@ -30,3 +30,5 @@ ocr_captions
 instance
 tt.py
 services/instagram_image_extracter copy.py
+services/abuse_manager.py
+d.py
