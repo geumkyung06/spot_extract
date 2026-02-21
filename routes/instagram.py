@@ -11,6 +11,7 @@ from services.instagram_text_parser import get_caption_no_login, split_caption, 
 from services.instagram_image_extracter import global_browser_manager, extract_insta_images
 from services.check_place import process_places
 from services.browser import browser_service
+from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad
 
 # models 파일에서 정의한 클래스들 임포트
 from models import db, Place, InstaUrl, UrlPlace
@@ -20,10 +21,9 @@ import shutil
 
 bp = Blueprint('instagram', __name__)
 
-SAVE_FOLDER = "downloaded_images"
-
 # 게시물 분석 후 장소 정보와 이미지를 DB에 저장 및 유저 화면에 반환
 @bp.route('/analyze', methods=['POST'])
+@jwt_required()
 async def analyze_instagram():
     """
     인스타그램 게시물 URL 분석 및 장소 추출
@@ -33,8 +33,8 @@ async def analyze_instagram():
     security:
       - Bearer: []
     description: >
-      인스타그램 게시물 URL을 받아 캡션 또는 이미지를 분석하여 장소 정보 추출
-      DB에 캐싱된 정보가 있으면 즉시 반환, 없으면 외부 API(Naver/Google)를 통해 정보를 수집 후 저장
+      인스타그램 게시물 URL을 받아 캡션 또는 이미지를 분석하여 장소 정보 추출.
+      어뷰징 방지(분당 요청 제한, 연속 실패 제재) 및 광고 노출을 위한 점수제 로직이 포함되어 있습니다.
     parameters:
       - name: body
         in: body
@@ -102,6 +102,10 @@ async def analyze_instagram():
                     type: string
                     description: 대표 이미지 URL 또는 경로
                     example: "https://example.com/image.jpg"
+            show_ad:
+              type: boolean
+              description: 보상형 광고 노출 여부 (해당 값이 true일 때만 프론트에서 광고 팝업 노출)
+              example: true
       400:
         description: 잘못된 요청 (URL 누락, 유효하지 않은 URL, 장소 게시물 아님)
         schema:
@@ -113,6 +117,39 @@ async def analyze_instagram():
             message:
               type: string
               example: "It is not a place post"
+      401:
+        description: 인증 실패 (토큰 누락 또는 유효하지 않은 유저)
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: "error"
+            message:
+              type: string
+              example: "Authentication required"
+      404:
+        description: 게시물에서 장소 정보를 찾지 못함
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: "failed"
+            message:
+              type: string
+              example: "can not found places"
+      429:
+        description: 요청 한도 초과 (분당 요청 횟수 초과 또는 연속 실패로 인한 임시 차단)
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: "error"
+            message:
+              type: string
+              example: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
       500:
         description: 서버 내부 오류
         schema:
@@ -123,9 +160,17 @@ async def analyze_instagram():
               example: "error"
             message:
               type: string
-    """
-
+    """ 
     try:
+        user_id = get_jwt_identity() 
+
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
+        
+        is_allowed, msg = check_abuse_and_rate_limit(user_id)
+        if not is_allowed:
+            return jsonify({'status': 'error', 'message': msg}), 429
+        
         data = request.get_json()
         url = data.get('url') # 프론트한테서 받아옴
         start = time.time()
@@ -137,11 +182,12 @@ async def analyze_instagram():
 
         post_places = [] # 프론트에 보낼 장소들 (name, address, category(list), rating_avg, rating_count)
         new_places = [] # db에 새로 저장할 장소들
+        earned_score = 0.0
 
         # 0. 장소 설명 게시물인지 확인 # 나중에 규칙 기반으로 변경
         is_place = is_place_post(url)
-        
         if not is_place:
+            handle_fail_count(user_id) # 실패 처리
             return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
         
         # 1. DB에 이미 URL이 있는지 확인
@@ -152,14 +198,17 @@ async def analyze_instagram():
         if match:
             shortcut = match.group(1)
         else: 
+            handle_fail_count(user_id)
             return jsonify({'status': 'error', 'message': 'Invalid URL'}), 400
         
         print(f"shortcut: {shortcut}")
+    
         db_places = check_db_have_url(shortcut)
         # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
         # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
         if db_places:
             print("DB 캐시 존재")
+            earned_score = 0.1 # 추출 전적 존재 0.1점
             post_places = db_places
         else:
             print("DB에 없음. 캡션 분석 시도")
@@ -178,9 +227,13 @@ async def analyze_instagram():
 
             if not candidates:
                 print("캡션에서 장소 못 찾음. OCR 시도...")
-                candidates = await check_ocr_place(url)
-
+                images, candidates = await check_ocr_place(url)
+                img_count = len(images)
+                earned_score = 1.0 * img_count
+            else :
+                earned_score = 0.2 # caption
             to_search_naver = []
+
             if candidates:
                 # db에서 있는지 확인
                 # candidates = {'place': '아우스페이스', 'address': '경기도 파주시 탄현면 새오리로 145-21'}
@@ -189,6 +242,7 @@ async def analyze_instagram():
                         print(f"DB에 이미 있는 장소: {existing_place['name']}")
                         post_places.append(existing_place)
             else:
+                handle_fail_count(user_id) 
                 return jsonify({'status':'failed', 'message': "can not found places"}), 404
             
             print(f"search list: {to_search_naver}")
@@ -200,10 +254,15 @@ async def analyze_instagram():
 
             if new_places:
                 save_places_to_db(new_places)
+
+        redis_client.delete(f"fail_count:{user_id}")
+        add_score_and_check_ad(user_id) # 실패 초기화
+        show_ad = False
+
         end = time.time()
         print(f"time: {end-start: .2f}s")
         # 프론트에 보낼 장소 정보
-        return jsonify({'status':'success', 'results':post_places}), 200
+        return jsonify({'status':'success', 'results': post_places, 'show_ad': show_ad}), 200
 
     except Exception as e:
         db.session.rollback()
@@ -361,7 +420,7 @@ async def check_ocr_place(url=""):
         if not global_browser_manager.browser:
             await global_browser_manager.start()
 
-        final_places = await extract_insta_images(url)
+        images, final_places = await extract_insta_images(url)
 
         if isinstance(final_places, dict) and "error" in final_places:
             print(f"추출 실패: {final_places['error']}")
@@ -378,7 +437,7 @@ async def check_ocr_place(url=""):
         end_total = time.time()
         total_time = end_total - start_total
         print(f"OCR 처리 시간: {total_time}s")
-        return final_places
+        return images, final_places
 
     except Exception as e:
         print(f"서버 에러: {e}")
