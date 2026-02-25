@@ -187,8 +187,13 @@ async def analyze_instagram():
         new_places = [] # db에 새로 저장할 장소들
         earned_score = 0.0
 
+        # 캡션 추출
+        caption = await get_caption_no_login(url)
+        if not caption:
+            return jsonify({'status': 'error', 'message': 'No caption'}), 400
+        
         # 0. 장소 설명 게시물인지 확인 # 나중에 규칙 기반으로 변경
-        is_place = is_place_post(url)
+        is_place = is_place_post(caption)
         if not is_place:
             handle_fail_count(user_id) # 실패 처리
             return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
@@ -208,7 +213,7 @@ async def analyze_instagram():
         else:
             print("DB에 없음. 캡션 분석 시도")
             # 캡션 파싱 로직
-            candidates, caption = await check_caption_place(url)
+            candidates = await check_caption_place(caption)
 
             #url_place에 저장
             try:
@@ -374,17 +379,11 @@ def is_address_match(input_addr, db_addr):
         
     return False
     
-async def check_caption_place( url=""):
+async def check_caption_place(caption=""):
     '''
     캡션에서 장소 추출
     '''
     try:
-        if not url:
-            print("URL이 비어있습니다.")
-            return [], ""
-        
-        caption = await get_caption_no_login(url)
-        
         if not caption:
             print("캡션을 찾을 수 없습니다.")
             return [], ""
@@ -396,11 +395,11 @@ async def check_caption_place( url=""):
             places = extract_places_with_gpt(caption)'''
         places = extract_places_with_gpt(caption) # 비동기로 변경해야함
         print(f"places: {places}")
-        return places, caption
+        return places
 
     except Exception as e:
         print(f"서버 에러: {e}")        
-        return [], ""
+        return []
 
 async def check_ocr_place(url=""):
 
