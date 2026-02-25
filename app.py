@@ -61,7 +61,7 @@ def create_app():
             "version": "1.0.0"
         },
 
-        "host": "http://52.78.23.132/8001", 
+        "host": "13.125.197.83:8001", 
         "basePath": "/", 
         "schemes": ["http"],
         "securityDefinitions": {
