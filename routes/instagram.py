@@ -34,7 +34,7 @@ async def analyze_instagram():
       - Bearer: []
     description: >
       인스타그램 게시물 URL을 받아 캡션 또는 이미지를 분석하여 장소 정보 추출.
-      어뷰징 방지(분당 요청 제한, 연속 실패 제재) 및 광고 노출을 위한 점수제 로직이 포함되어 있습니다.
+      어뷰징 방지(분당 요청 제한, 연속 실패 제재) 및 광고 노출을 위한 점수제 로직 포함
     parameters:
       - name: body
         in: body
@@ -174,10 +174,13 @@ async def analyze_instagram():
         data = request.get_json()
         url = data.get('url') # 프론트한테서 받아옴
         start = time.time()
-        print(f"url: {url}")
-        if not url:
+        post_type, shortcut = extract_shortcode(url)
+        print(f"url: {url}, shortcut: {shortcut}")
+
+        if not shortcut:
             return jsonify({'status': 'error', 'message': 'URL is required'}), 400
 
+        url = f"https://www.instagram.com/p/{shortcut}"
         print(f"[Start] 분석 시작: {url}")
 
         post_places = [] # 프론트에 보낼 장소들 (name, address, category(list), rating_avg, rating_count)
@@ -192,15 +195,7 @@ async def analyze_instagram():
         
         # 1. DB에 이미 URL이 있는지 확인
         print("DB에 존재하는 게시물인지 확인 중...")
-        pattern = r'/(?:p|reel)/([^/?]+)'
-    
-        match = re.search(pattern, url)
-        if match:
-            shortcut = match.group(1)
-        else: 
-            handle_fail_count(user_id)
-            return jsonify({'status': 'error', 'message': 'Invalid URL'}), 400
-        
+
         print(f"shortcut: {shortcut}")
     
         db_places = check_db_have_url(shortcut)
@@ -470,3 +465,13 @@ def save_places_to_db(new_places = []):
     except Exception as e:
         db.session.rollback()
         print(f"DB 저장 실패: {e}")
+
+def extract_shortcode(url):
+    pattern = r'/(p|reels|tv)/([A-Za-z0-9\-_]+)'
+    
+    match = re.search(pattern, url)
+    if match:
+        post_type = match.group(1)
+        shortcode = match.group(2) 
+        return post_type, shortcode
+    return None, None
