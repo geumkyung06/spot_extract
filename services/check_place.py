@@ -86,7 +86,7 @@ def _download_google_photo(shortcut, photo_reference: str) -> Optional[str]:
         return None
 
 
-def _search_naver_local(query: str) -> dict: # 쿼리 ex) 서울(성수) 진사천훠궈 
+def _search_naver_local(query: str) -> dict: # 쿼리 ex) 서울(성수) 진사천훠궈 query[0]으로 [위치+가게명, 주소] 로 변경 필요
     """네이버 지역 검색 (한국어 상호명/주소 검증용)"""
     if not SEARCH_CLIENT_ID or not SEARCH_CLIENT_SECRET: return {}
     
@@ -113,6 +113,7 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
         print("not google api key")
         return {}
     
+    
     query = f"{name} {address}"
     params = {
         "query": query,
@@ -122,14 +123,17 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
     }
 
     result_data = {
-        "latitude": 0.0,
-        "longitude": 0.0,
-        "category": "etc",
-        "rating_avg": 0.0,
-        "rating_count": 0,
-        "photos": []      # 썸네일만
-    }
 
+            "address" : " ", # 네이버 검색 시도 시 없을 때
+            "latitude": 0.0,
+            "longitude": 0.0,
+            "category": "etc",
+            "rating_avg": 0.0,
+            "rating_count": 0,
+            "photos": []      # 썸네일만
+        }
+
+        
     try:
         r = requests.get(GOOGLE_TEXTSEARCH_URL, params=params, timeout=5)
         data = r.json()
@@ -142,6 +146,10 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
         if data.get("status") == "OK" and data.get("results"):
             best = data["results"][0]
             
+            # 애초에 검색할 때 한번에 
+            # 주소 
+            if not address: result_data["address"] = best["formatted_address"]
+
             # 좌표
             loc = best["geometry"]["location"]
             result_data["latitude"] = loc["lat"]
@@ -192,21 +200,26 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
             print(f"전체 검색 실패, '{split_name}'(으)로 재시도")
             naver_item = _search_naver_local(split_name)
             
+            # 네이버 데이터 정제
+            road_name = re.sub(r'<[^>]+>', '', naver_item['title'])
+            road_addr = naver_item.get('roadAddress') or naver_item.get('address')
+            
+            print(f"  -> 네이버 확인: {road_name} ({road_addr})")
+
             if not naver_item:
-                print("네이버 검색 실패, 건너뜀")
-                continue
+                print("네이버 검색 실패")
+                # 검색 결과 없으면 이름 바로 구글 검색
+                road_name = query[0]
+                road_addr = query[1]
 
-        # 네이버 데이터 정제
-        road_name = re.sub(r'<[^>]+>', '', naver_item['title'])
-        road_addr = naver_item.get('roadAddress') or naver_item.get('address')
+        # 2. 구글 통합 검색 (좌표, 카테고리, 평점, 리뷰, 사진) 
+        google_data = _fetch_google_details(road_name, road_addr, shortcut) # 주소 없어도 되나?
         
-        print(f"  -> 네이버 확인: {road_name} ({road_addr})")
+        if not road_addr: road_addr = google_data["address"]
 
-        # 2. 구글 통합 검색 (좌표, 카테고리, 평점, 리뷰, 사진)
-        google_data = _fetch_google_details(road_name, road_addr, shortcut)
-        
         raw_photos = google_data.get("photos", [])
         # 3. 데이터 병합
+        # 주소만 있는 경우도 설명하는가? >> 봐야함. 근데 아마 주소만 있으면 안되게 할 듯
         place_obj = {
             "name": road_name,
             "address": road_addr,
@@ -220,5 +233,4 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
         final_results.append(place_obj)
         
         time.sleep(0.1)
-
     return final_results
