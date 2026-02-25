@@ -285,11 +285,31 @@ def extract_places_with_gpt(caption):
         return [], "에러"
 
 def is_place_post(caption):
-    if not caption:
-        return [], "없음"
-
     try:
-        response = client.chat.completions.create(
+        # 추후 수정 필요함!!!!!!!
+        # 핵심 장소 키워드
+        place_keywords = ['공간', '곳', '장소', '작업실', '매장', '스토어', '전시']
+        
+        # 방문 정보 키워드 (축제/팝업도 포함시키기 위함)
+        info_keywords = ['📍', '주소', '위치', '🗓️', '기간', '일시', '운영', '지도', '근처']
+        
+        # 행동/추천 키워드
+        action_keywords = ['추천', '공유', '저장', '가보세', '방문', '데이트']
+
+        # 장소 키워드 출현 빈도
+        place_score = sum(1 for word in place_keywords if word in caption)
+        
+        # 방문 정보 유무 (좌표나 기간이 명시되었는가?)
+        info_score = sum(1 for word in info_keywords if word in caption)
+        
+        # 행동 유도 유무
+        action_score = sum(1 for word in action_keywords if word in caption)
+
+        is_valid = (place_score >= 1 and info_score >= 1) or (info_score >= 2)
+        
+        print(f"점수 - 장소:{place_score}, 정보:{info_score}, 행동:{action_score}")
+        return is_valid
+        '''response = client.chat.completions.create(
             model="gpt-4o-mini",  
             messages=[
                 {
@@ -303,10 +323,12 @@ def is_place_post(caption):
             temperature=0, # 창의성 0 
         )
 
-        # 결과 파싱
-        result = json.loads(response.choices[0].message.content)
-        return result
+        content = response.choices[0].message.content.strip()
+        
+        result = True if "true" in content.lower() else False
+        return result, "성공"'''
 
     except Exception as e:
-        print(f"GPT Error: {e}")
-        return [], "에러"
+        # 
+        print(f"Error: {e}", flush=True)
+        return False, "에러"
