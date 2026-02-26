@@ -187,34 +187,29 @@ async def analyze_instagram():
         new_places = [] # db에 새로 저장할 장소들
         earned_score = 0.0
 
-        # 캡션 추출
-        caption = await get_caption_no_login(url)
-        if not caption:
-            return jsonify({'status': 'error', 'message': 'No caption'}), 400
-        
-        # 0. 장소 설명 게시물인지 확인 # 나중에 규칙 기반으로 변경
-        is_place = is_place_post(caption)
-        if not is_place:
-            handle_fail_count(user_id) # 실패 처리
-            return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
-        
         # 1. DB에 이미 URL이 있는지 확인
         print("DB에 존재하는 게시물인지 확인 중...")
-
-        print(f"shortcut: {shortcut}")
-    
         db_places = check_db_have_url(shortcut)
-        # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
-        # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
+        
         if db_places:
             print("DB 캐시 존재")
             earned_score = 0.1 # 추출 전적 존재 0.1점
             post_places = db_places
         else:
             print("DB에 없음. 캡션 분석 시도")
-            # 캡션 파싱 로직
-            candidates = await check_caption_place(caption)
-
+            # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
+            # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
+            # 캡션 추출
+            caption = await get_caption_no_login(url)
+            if not caption:
+                return jsonify({'status': 'error', 'message': 'No caption'}), 400
+            
+            # 장소 설명 게시물인지 확인
+            is_place = is_place_post(caption)
+            if not is_place:
+                handle_fail_count(user_id) # 실패 처리
+                return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
+            
             #url_place에 저장
             try:
                 save_caption = caption[:252] + "..." if caption and len(caption) > 255 else caption
@@ -224,6 +219,9 @@ async def analyze_instagram():
             except Exception as e:
                 db.session.rollback()
                 print(f"InstaUrl 저장 실패: {e}")
+
+            # 캡션 파싱 로직
+            candidates = await check_caption_place(caption)
 
             if not candidates:
                 print("캡션에서 장소 못 찾음. OCR 시도...")
@@ -247,7 +245,7 @@ async def analyze_instagram():
             
             print(f"search list: {to_search_naver}")
             if to_search_naver:
-                search_results = process_places(to_search_naver)
+                search_results = process_places(to_search_naver, shortcut)
                 
                 new_places.extend(search_results)
                 post_places.extend(search_results)
@@ -272,8 +270,6 @@ async def analyze_instagram():
 def check_db_have_url(url=""):
     post_places = []
     # DB에 이미 URL이 있는지 확인
-    #existing_insta = UrlPlace.query.filter_by(url=url).all() # 해당 url 속 여러 장소 placeid_id 전부 가져오기
-
     # 해당 url 속 여러 장소 placeid_id 전부 가져오기 +  placeid_id / id 비교
     existing_insta = (
         db.session.query(Place)
@@ -285,7 +281,6 @@ def check_db_have_url(url=""):
 
     if existing_insta:
         # 이미 존재하면 해당 장소 불러오기
-
         for place in existing_insta :
             #existing_place = Place.query.filter_by(id=place.placeid_id).first() # placeid_id / id 비교
             place_data = {
