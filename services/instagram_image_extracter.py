@@ -275,6 +275,6 @@ async def extract_insta_images(url=""):
             except Exception as e:
                 print(f"S3 삭제 실패: {e}")
     
-    return ocr_results
+    return image_urls, ocr_results
 
 
