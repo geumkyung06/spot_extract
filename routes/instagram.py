@@ -254,7 +254,7 @@ async def analyze_instagram():
                 save_places_to_db(new_places)
 
         redis_client.delete(f"fail_count:{user_id}")
-        add_score_and_check_ad(user_id) # 실패 초기화
+        add_score_and_check_ad(user_id, earned_score) # 실패 초기화
         show_ad = False
 
         end = time.time()
@@ -449,7 +449,8 @@ def save_places_to_db(new_places = []):
                     longitude=p_info.get('longitude'),
                     rating_avg=p_info.get('rating_avg'),
                     rating_count=p_info.get('rating_count'),
-                    photo=p_info.get('photo', '')
+                    photo=p_info.get('photo', ''),
+                    gid=" "
                 )
                 db.session.add(place)
                 db.session.flush()  # flush를 해야 place.id가 생성됨
