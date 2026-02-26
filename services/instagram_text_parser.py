@@ -4,6 +4,7 @@ import re
 import os
 from playwright.async_api import async_playwright
 from openai import OpenAI
+import logging
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -43,6 +44,8 @@ KOREAN_REGIONS = [
 
 async def get_caption_no_login(post_url: str):
     caption_text = ""
+    success_step = "failed"
+
     async with async_playwright() as p:
         
         browser = await p.chromium.launch(headless=True)
@@ -61,7 +64,7 @@ async def get_caption_no_login(post_url: str):
         try:
             await page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
             
-            print("1단계: 일반 게시물 로직 시도...")
+            logging.debug("1단계: 일반 게시물 로직 시도...")
             
             # 일반 포스트
             # 1-1. JSON-LD
@@ -77,10 +80,10 @@ async def get_caption_no_login(post_url: str):
                         caption_text = data["articleBody"]
                     
                     if caption_text:
-                        print(">> 1단계 JSON-LD 성공")
+                        success_step = "1-1 (JSON-LD)"
             except: pass
 
-            # 1-2. 정규식
+            # 1-2. 정규식(Regex)
             if not caption_text:
                 try:
                     content = await page.content()
@@ -93,14 +96,14 @@ async def get_caption_no_login(post_url: str):
                         if match:
                             raw_text = match.group(1)
                             caption_text = json.loads(f'"{raw_text}"')
-                            print(">> 1단계 정규식 성공")
+                            success_step = "1-2 (Regex)"
                             break
                 except: pass
 
 
             # 릴스
             if not caption_text:
-                print("1단계 실패. 2단계(릴스 로직)로 전환합니다...")
+                logging.debug("1단계 실패. 2단계(릴스 로직)로 전환합니다...")
 
                 # 2-1. Meta Tag 추출
                 try:
@@ -114,7 +117,7 @@ async def get_caption_no_login(post_url: str):
                             caption_text = meta_desc
                         
                         if caption_text:
-                            print(">> 2단계 Meta Tag 성공")
+                            success_step = "2-1 (Reels Logic)"
                 except: pass
 
                 # 2-2. UI 요소 직접 추출
@@ -127,7 +130,7 @@ async def get_caption_no_login(post_url: str):
                         
                         if element:
                             caption_text = await element.inner_text()
-                            print(">> 2단계 UI 요소 추출 성공")
+                            success_step = "2-2 (Reels UI element)"
                     except: pass
 
                 # 2-3. 정규식 
@@ -140,106 +143,177 @@ async def get_caption_no_login(post_url: str):
                         if match:
                             raw_text = match.group(1)
                             caption_text = json.loads(f'"{raw_text}"')
-                            print(">> 2단계 릴스 정규식 성공")
+                            success_step = "2-3 (Reels Regex)"
                     except: pass
+                
+                if caption_text:
+                    # 성공 시: URL, 성공한 단계, 본문 앞부분 출력
+                    logging.info(f"[SUCCESS] {post_url} | Step: {success_step} | Text: {caption_text[:10]}...")
+                else:
+                    logging.warning(f"[FAILED] {post_url} | 캡션을 찾지 못했습니다.")
 
         except Exception as e:
-            print(f"Playwright 에러: {e}")
+            logging.error(f"Playwright 에러: {e}")
         
         await browser.close()
 
     return caption_text
 
-def check_time_line(lines):
-    strong_keywords = ['영업', '운영', '오픈', '마감', '휴무', '휴일']
-    time_patterns = [
-        r'\d{1,2}:\d{2}', r'\d{1,2}\s*시', r'\d{1,2}\s*~', r'[AaPp][Mm]\s*\d{1,2}'
-    ]
-    day_patterns = [
-        r'[/(]\s*[월화수목금토일]\s*[)/]', r'[월화수목금토일]\s*요일',
-        r'[월화수목금토일]\s*[-~]\s*[월화수목금토일]', r'\d{2,4}[\.\/\-]\d{1,2}[\.\/\-]\d{1,2}'
-    ]
-
-    found_time_index = -1
-    for idx, line in enumerate(lines):
-        is_time_line = False
-        if any(k in line for k in strong_keywords): is_time_line = True
-        if not is_time_line:
-            if any(re.search(p, line) for p in time_patterns): is_time_line = True
-            elif any(re.search(p, line) for p in day_patterns): is_time_line = True
-        
-        if is_time_line:
-            found_time_index = idx
-            break 
+def clean_text(text):
+    if not text:
+        return ""
+    # 1. 이모지 및 특수문자 제거 (한글, 영문, 숫자, 공백, 기본 문장부호만 남김)
+    # 가-힣: 한글, a-zA-Z: 영문, 0-9: 숫자, \s: 공백, \. \, \! \?: 기본 부호
+    cleaned = re.sub(r'@.*', '', text)
+    cleaned = re.sub(r'[^ㄱ-ㅣ가-힣a-zA-Z0-9\s\.\,\!\?\#\-\+\:]', '', cleaned)
     
-    if found_time_index > 0: 
-        real_address = lines[:found_time_index]
-        return "\n".join(real_address)
-    else:
-        return None
+    cleaned.strip()
+    # 괄호도 빼기 > 띄어쓰기로 변환
+    lines = re.split(r'\n{2,}', cleaned)
 
-# 규칙 기반 수정해야함 -> 그전까지 일단 ai만 사용
-def split_caption(caption):
-    if not caption: return [], []
-
-    spt_caption = [block.strip() for block in caption.split("\n\n") if block.strip()]
-    if spt_caption: spt_caption.pop(0)
-
-    explanation = []
-    place = []
-
-    # 장소명 
-    strong_keywords = ["매장", "주소", "위치"]
-    
-    detail_pattern = re.compile(r'[가-힣]+(시|구|군|동|읍|면|로|길)')
-    number_pattern = re.compile(r'\d+(-\d+)?')
-
-    for block in spt_caption:
-        matched_region = next((region for region in KOREAN_REGIONS if region in block), None)
-
-        has_strong_keyword = any(k in block for k in strong_keywords)
-
-        if matched_region and (detail_pattern.search(block) or number_pattern.search(block)) or has_strong_keyword:
-            if "!" not in block:
-                lines = block.splitlines()
-                time_check_text = check_time_line(lines)
-
-                if time_check_text: 
-                    target_line = time_check_text 
-                else : 
-                    target_line = "\n".join(lines[:3])
-
-                place.append(target_line)
-
-            else: 
-                explanation.append(block)
-        else:
-            explanation.append(block)
+    # 해시태그 여럿이면 그 부분 삭제    
+    cleaned_list = []
+    for line in lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
             
-    if not place:
-        for block in explanation[:]: 
-            lines = block.splitlines()
-            add_caption = check_time_line(lines)
-
-            if add_caption:
-                place.append(add_caption)
-                explanation.remove(block)
+        # 해시태그 과다 문단 제거
+        if stripped_line.count("#") > 1:
+            continue
+            
+        # 한글 비중 체크 (영어만 있는 문단 제거)
+        # 10% 미만이면 영어 문단으로 간주하고 버림
+        if not is_korean_content(stripped_line, threshold=0.1):
+            logging.debug(f"영어 문단 제외됨: {stripped_line[:20]}...")
+            continue
+            
+        cleaned_list.append(stripped_line)
     
-    # 제거 리스트
-    remove_prefixes = ["매장명", "매장", "주소", "위치"]
+    final_text = "\n\n".join(cleaned_list)
+    return final_text, cleaned_list
 
-    for idx, info in enumerate(place):
-        for prefix in remove_prefixes:
-            if prefix in info:
-                info = info.split(prefix, 1)[1]
-                info = info.lstrip(" :").strip()
+def is_korean_content(text, threshold=0.1):
+    # 문단 내 한글 글자 수 계산
+    korean_chars = len(re.findall(r'[가-힣]', text))
+    total_chars = len(text.strip().replace(" ", "")) # 공백 제외 전체 글자 수
+    
+    if total_chars == 0: return False
+    
+    # 한글 비율 계산
+    ratio = korean_chars / total_chars
+    return ratio >= threshold
 
-        info = re.sub(r'@[a-zA-Z0-9_.]+', '', info)
-        info = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', info)
-        info = " ".join(info.split())
-        place[idx] = info
+def list_chunk(lst, n):
+    return [lst[i:i+n] for i in range(0, len(lst), n)]
 
-    return place, caption
+def check_rulebase_place(list_caption: list): 
+    list_caption_with_ratio = [] # 이중리스트, [ratio, 문장]
+
+    allowed_tags = ["NNG","NNP", "NNB", "NNM","NR","NP","ON", "UN", "OL"] # 명사 비율 확인
+    
+    # 주소
+    combined_addr_pattern = re.compile(r'[가-힣]+(시|구|군|동|읍|면|로|길)\s?\d+')
+
+    address_idxs = []
+    
+    kkma = Kkma()
+    for idx, splits in enumerate(str(list_caption).split("\n")) :
+        splits = splits.strip()
+        if not splits:
+            continue
+
+        list_paragrath = []
+        if combined_addr_pattern.search(splits):
+            ratio = 1.0
+            address_idxs.append(idx)
+            pattern = "address"
+        else :
+            try :
+                pos = kkma.pos(splits)
+                pattern = "description"
+                logging.debug(pos)
+
+                po_count = len(pos)
+                N_count = len([text for text, po in pos if po in allowed_tags])
+                ratio = N_count/po_count
+            except Exception as e:
+                logging.error(f"Kkma 분석 에러 (내용: {splits}): {e}")
+                ratio = 0
+                pattern = "error"
+
+        logging.info(f"pattern: {pattern}, content: {splits}")
+        list_paragrath.append(ratio)
+        list_paragrath.append(splits)
+        list_caption_with_ratio.append(list_paragrath)
+
+# 주소 있는지 없는지 먼저 훑기
+# 주소 있는 캡션이면 그 때 해당 인덱스 제외 nlpy 돌리기
+# 해시태그 이후 글 전부 삭제
+    return list_caption_with_ratio, address_idxs # 문단 리스트
+
+def check_place_in_caption(dict_paragraf: dict, list_caption: list): 
+    # dict_paragraf >  {문단 : [[ratio, 문장]], address_idxs]}
+    result = []
+
+    # 문단별로 확인
+    for idx, data in dict_paragraf.items():
+        list_caption_with_ratio = data[0]
+        address_idxs = data[1]
+        address_count = len(address_idxs)
+        logging.debug(f"주소 개수: {address_count}")
+
+        if address_count :
+            if address_count > 1: 
+                chunk_size = len(list_caption_with_ratio) // address_count
+                caption_list_with_chunk = list_chunk(list_caption_with_ratio, chunk_size) # 문단 내에서 주소 기준 문장별로 나누기(이중리스트)
+            else : 
+                caption_list_with_chunk = [list_caption_with_ratio]
+
+            logging.debug(f"----주소 기준 문장 분할----\n{caption_list_with_chunk}")
+            result.append(check_base_on_address(caption_list_with_chunk, address_idxs))
+            # number를 추가하게 되면 주소까지 한번에 나옴. > 근데 가게명에 넘버 있는 경우가 있음
+            # 숫자 포함 후 > 주소 엮어서 확인 과정 필요
+    
+    logging.info(f"주소 기준 분할 문장 : {len(caption_list_with_chunk)}개")
+    return result
+
+def check_base_on_address(caption_list_with_chunk: list, address_idxs: list) :
+    result = []
+
+    ratio_idx = []
+    for idx, caption in enumerate(caption_list_with_chunk): 
+        # 주소 위치를 제외하고 맥스값
+        copy_caption = caption[:]
+        copy_address_idx = address_idxs[:]
+        
+        if copy_caption:
+            address_idx = copy_address_idx.pop(0)
+            del copy_caption[address_idx]
+        logging.debug(f"주소 인덱스 삭제: {copy_caption}")
+
+        ratio_max = max(copy_caption)
+        original_idx = caption.index(ratio_max)
+        ratio_idx.append(original_idx)
+
+    logging.debug(f"주소 제외 명사 비율 최대 인덱스: {ratio_idx}")
+    if not ratio_idx: return result
+
+    place_idxs = Counter(ratio_idx)
+    place_idx = place_idxs.most_common(n=1)[0][0] # 최빈값이 장소 idx [(1 : 5)]
+    
+    copy_address_idx = address_idxs[:]
+    address_idx = Counter(copy_address_idx)
+    address_idx = address_idx.most_common(n=1)[0][0]
+    '''address_idx = copy_address_idx.pop(0)'''
+    logging.debug(f"장소 인덱스: {place_idx}, 주소 인덱스: {address_idx}")
+
+    # [{'name': '상호명1', 'address': '주소1'}, ...]
+    for caption in caption_list_with_chunk:
+        if len(caption) > place_idx:
+            result.append({'name' : caption[place_idx][1], 'address' :caption[address_idx][1]}) # 장소, 주소
+
+    return result
 
 def extract_places_with_gpt(caption):
     """
@@ -281,7 +355,7 @@ def extract_places_with_gpt(caption):
         return places
 
     except Exception as e:
-        print(f"GPT Error: {e}")
+        logging.error(f"GPT Error: {e}")
         return [], "에러"
 
 def is_place_post(caption):
@@ -305,30 +379,45 @@ def is_place_post(caption):
         # 행동 유도 유무
         action_score = sum(1 for word in action_keywords if word in caption)
 
-        is_valid = place_score >= 1 or info_score >= 1 or info_score >= 2
+        is_valid = place_score >= 1 or info_score >= 1 or action_score >= 1
         
-        print(f"점수 - 장소:{place_score}, 정보:{info_score}, 행동:{action_score}")
+        logging.info(f"valid:{is_valid}\nscore - place:{place_score}, info:{info_score}, action:{action_score}")
         return is_valid
-        '''response = client.chat.completions.create(
-            model="gpt-4o-mini",  
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "해당 캡션이 장소를 설명하는 글인지 확인하고 True/Flase로 출력해"
-                    )
-                },
-                {"role": "user", "content": caption}
-            ],
-            temperature=0, # 창의성 0 
-        )
-
-        content = response.choices[0].message.content.strip()
-        
-        result = True if "true" in content.lower() else False
-        return result, "성공"'''
 
     except Exception as e:
-        # 
-        print(f"Error: {e}", flush=True)
+        logging.error(f"Error: {e}", flush=True)
         return False, "에러"
+
+# 규칙 기반 수정해야함 -> 그전까지 일단 ai만 사용
+def split_caption(caption):
+    if not caption:
+        logging.info("No caption")
+        return
+
+    cleaned_caption, list_caption = clean_text(caption)
+    
+    logging.debug(cleaned_caption)
+ 
+    try:
+        logging.info("[형태소 분석 중...]")
+        dict_paragraf = {} # {문단 : [list_caption_with_ratio, address_idxs]}
+        have_address = 0
+
+        for idx, text in enumerate(list_caption): # 문단별로 파악
+            list_caption_with_ratio, address_idxs = check_rulebase_place(text)
+            logging.debug(f"---------list_caption_with_ratio-------- \n{list_caption_with_ratio}")
+            logging.debug(f"---------address_idxs-------- \n{address_idxs}")
+            if address_idxs: have_address = 1
+            dict_paragraf[idx] = [list_caption_with_ratio, address_idxs]
+
+        if have_address : 
+            result = check_place_in_caption(dict_paragraf , list_caption)
+        else:
+            logging.info("장소 아님")
+        
+        logging.info(f"추출 결과 :{result}")
+        return result
+
+    except Exception as e:
+        logging.error(f"분석 에러: {e}")
+        return []
