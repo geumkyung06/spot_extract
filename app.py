@@ -11,6 +11,7 @@ from flasgger import Swagger
 from flask_jwt_extended import JWTManager
 from services.browser import browser_service
 import asyncio
+import logging
 
 # 모델과 DB 객체 임포트
 from models import db
@@ -22,8 +23,7 @@ from routes.instagram import bp as instagram_bp
 from routes.places import user_places_bp
 from routes.friend import bp as friend_bp
 
-
-
+logging.basicConfig(level=logging.INFO)
 # pymysql 설정
 pymysql.install_as_MySQLdb()
 
