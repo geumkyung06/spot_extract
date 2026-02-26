@@ -32,3 +32,6 @@ Pillow
 asgiref
 asyncio
 async
+
+# nl
+konlpy
