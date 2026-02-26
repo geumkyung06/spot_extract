@@ -6,6 +6,7 @@ import uuid
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import quote_plus
 import boto3
+import logging
 
 s3 = boto3.client('s3')
 
@@ -186,36 +187,33 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
     입력된 장소명 리스트를 받아 네이버 검증 -> 구글 상세정보 병합 후 최종 데이터 반환
     """
     final_results = []
+    
 
     for idx, query in enumerate(place_queries):
         print(f"\n[Processing] {query}...")
+        road_name = query[0]
+        road_addr = query[1]
         
         # 네이버 검색
-        naver_item = _search_naver_local(query[0])
+        naver_item = _search_naver_local(road_name)
 
         if idx%5 == 0: time.sleep(0.3)
-        if not naver_item :
-            split_name = query[1]
-            split_name = split_name.split(',')[0]
-            print(f"전체 검색 실패, '{split_name}'(으)로 재시도")
-            naver_item = _search_naver_local(split_name)
-            
+        if naver_item :
             # 네이버 데이터 정제
             road_name = re.sub(r'<[^>]+>', '', naver_item['title'])
             road_addr = naver_item.get('roadAddress') or naver_item.get('address')
             
-            print(f"  -> 네이버 확인: {road_name} ({road_addr})")
+            logging.debug(f"[네이버 확인] 가게명: {road_name}, 주소: {road_addr}")
 
-            if not naver_item:
-                print("네이버 검색 실패")
-                # 검색 결과 없으면 이름 바로 구글 검색
-                road_name = query[0]
-                road_addr = query[1]
+        else:
+            logging.debug("네이버 검색 실패")
+            logging.debug(f"[기존 추출 내용] 가게명: {road_name}, 주소: {road_addr}")
+            # 검색 결과 없으면 이름 바로 구글 검색
 
         # 2. 구글 통합 검색 (좌표, 카테고리, 평점, 리뷰, 사진) 
         google_data = _fetch_google_details(road_name, road_addr, shortcut) # 주소 없어도 되나?
         
-        if not road_addr: road_addr = google_data["address"]
+        if road_addr == query[1]: road_addr = google_data["address"]
 
         raw_photos = google_data.get("photos", [])
         # 3. 데이터 병합
