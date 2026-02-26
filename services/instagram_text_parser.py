@@ -294,7 +294,7 @@ def is_place_post(caption):
         info_keywords = ['📍', '주소', '위치', '🗓️', '기간', '일시', '운영', '지도', '근처']
         
         # 행동/추천 키워드
-        action_keywords = ['추천', '공유', '저장', '가보세', '방문', '데이트']
+        action_keywords = ['추천', '공유', '저장', '가보세', '방문', '데이트', '소개']
 
         # 장소 키워드 출현 빈도
         place_score = sum(1 for word in place_keywords if word in caption)
@@ -305,7 +305,7 @@ def is_place_post(caption):
         # 행동 유도 유무
         action_score = sum(1 for word in action_keywords if word in caption)
 
-        is_valid = (place_score >= 1 and info_score >= 1) or (info_score >= 2)
+        is_valid = place_score >= 1 or info_score >= 1 or info_score >= 2
         
         print(f"점수 - 장소:{place_score}, 정보:{info_score}, 행동:{action_score}")
         return is_valid
