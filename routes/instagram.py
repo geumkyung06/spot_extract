@@ -385,7 +385,7 @@ async def check_caption_place(caption=""):
     try:
         if not caption:
             print("캡션을 찾을 수 없습니다.")
-            return [], ""
+            return []
         
         # 규칙 기반 좀 더 타이트하게 해야함
         '''places, caption = split_caption(caption)
@@ -393,6 +393,9 @@ async def check_caption_place(caption=""):
         if not places:
             places = extract_places_with_gpt(caption)'''
         places = extract_places_with_gpt(caption) # 비동기로 변경해야함
+        if not places:
+            return []
+        
         print(f"places: {places}")
         return places
 
