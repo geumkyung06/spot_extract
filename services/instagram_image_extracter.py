@@ -98,7 +98,7 @@ async def extract_images(browser_manager: BrowserManager, post_url: str):
 
     # 이미지, 폰트, 미디어 차단
     await page.route("**/*", lambda route: 
-        route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
+        route.abort() if route.request.resource_type in ["media", "font", "stylesheet"] 
         else route.continue_()
     )
 
@@ -154,15 +154,18 @@ async def process_download(session, url, index):
             if response.status == 200:
                 data = await response.read()
                 
-                byte_buffer, pil_image = await asyncio.to_thread(crop_and_save_image, data, 150)
+                result = await asyncio.to_thread(crop_and_save_image, data, 150)
+                # 크롭 결과가 None인지 확인
+                if not result: return None, None
 
-                if not byte_buffer: return None, None
-                
+                byte_buffer, pil_image = result # 언팩 에러 방지
+
                 def upload_s3():
+                    byte_buffer.seek(0) # 반드시 읽기 전 포인터 초기화
                     s3.put_object(
                         Bucket=BUCKET_NAME,
                         Key=s3_key,
-                        Body=byte_buffer,
+                        Body=byte_buffer, 
                         ContentType='image/jpeg'
                     )
                 await asyncio.to_thread(upload_s3)
