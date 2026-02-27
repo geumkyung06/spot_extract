@@ -20,6 +20,7 @@ GOOGLE_PHOTO_URL = "https://maps.googleapis.com/maps/api/place/photo"
 
 session = requests.Session()
 
+# enum('restaurant','bar','cafe','dessert','exhibition','prop_shop','experience','clothing','etc') 
 def _map_google_category(google_types: list) -> str:
     """
     구글 Places API Types -> 내 앱 9개 카테고리로 매핑
@@ -28,35 +29,38 @@ def _map_google_category(google_types: list) -> str:
 
     # 1. 전시회
     if any(t in types_set for t in ["art_gallery", "museum", "arts_organization"]):
-        return "exhibition"
+        result_category = "exhibition"
     # 2. 체험 
-    if any(t in types_set for t in [
+    elif any(t in types_set for t in [
         "amusement_park", "aquarium", "bowling_alley", "campground",
         "movie_theater", "zoo", "park", "tourist_attraction", "stadium"
     ]):
-        return "experience"
+        result_category = "experience"
     # 3. 소품샵 
-    if any(t in types_set for t in ["home_goods_store", "book_store", "florist", "furniture_store"]):
-        return "accessory"
+    elif any(t in types_set for t in ["home_goods_store", "book_store", "florist", "furniture_store"]):
+        result_category = "prop_shop"
     # 4. 옷가게 
-    if any(t in types_set for t in ["clothing_store", "shoe_store", "jewelry_store", "shopping_mall", "department_store"]):
-        return "cloth"
+    elif any(t in types_set for t in ["clothing_store", "shoe_store", "jewelry_store", "shopping_mall", "department_store"]):
+        result_category = "clothing"
     # 5. 디저트 
-    if "bakery" in types_set:
-        return "dessert"
+    elif "bakery" in types_set:
+        result_category = "dessert"
     # 6. 카페 
-    if "cafe" in types_set:
-        return "cafe"
+    elif "cafe" in types_set:
+        result_category = "cafe"
     # 7. 술집
-    if any(t in types_set for t in ["bar", "night_club", "casino", "liquor_store"]):
-        return "bar"
+    elif any(t in types_set for t in ["bar", "night_club", "casino", "liquor_store"]):
+        result_category = "bar"
     # 8. 음식점
-    if any(t in types_set for t in ["restaurant", "food", "meal_takeaway", "meal_delivery"]):
-        return "restaurant"
-
+    elif any(t in types_set for t in ["restaurant", "food", "meal_takeaway", "meal_delivery"]):
+        result_category = "restaurant"
+    else:
     # 9. 기타
-    return "etc"
+        result_category = "etc"
 
+    logging.debug(f"분류: {result_category}, 구글 카테고리: {types_set}")
+
+    return result_category
 def _download_google_photo(shortcut, photo_reference: str) -> Optional[str]:
     """구글 포토 Reference로 이미지 다운로드 및 저장"""
     if not PLACE_API_KEY: return None
@@ -221,7 +225,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
         place_obj = {
             "name": road_name,
             "address": road_addr,
-            "list": google_data.get("category", "etc"),  
+            "category": google_data.get("category", "etc"),  
             "latitude": google_data.get("latitude", 0.0),
             "longitude": google_data.get("longitude", 0.0),
             "rating_avg": google_data.get("rating_avg", 0.0),
