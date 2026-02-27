@@ -7,7 +7,6 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-FILE_NAME = "spot-ocr"
 # 설정
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -174,21 +173,26 @@ def gemini_flash_ocr(pil_image):
         config=types.GenerateContentConfig(
             response_mime_type="application/json", 
             response_schema={
-                "type": "ARRAY",
-                "items": {
-                    "type": "OBJECT",
+                "type": "OBJECT",
                     "properties": {
-                        "name": {"type": "STRING", "description": "가게 이름. 없으면 빈 문자열"},
-                        "address": {"type": "STRING", "description": "도로명/지번 주소. 없으면 빈 문자열"}
+                        "places": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "name": {"type": "STRING", "description": "가게 이름. 없으면 빈 문자열"},
+                                    "address": {"type": "STRING", "description": "도로명/지번 주소. 없으면 빈 문자열"}
+                                }
+                            }
+                        }
                     },
-                    "required": ["name"] 
-                }
             }
         )
-    )
+    )   
         data = json.loads(response.text)
         
-        valid_data = [item for item in data if item.get('name') and item['name'].strip() != ""]
+        places_list = data.get('places', [])
+        valid_data = [item for item in places_list if item.get('name') and item['name'].strip() != ""]
         
         # 정제 로직
         for item in valid_data:
@@ -199,7 +203,7 @@ def gemini_flash_ocr(pil_image):
             
             item['address'] = clean_addr.strip()
             item['name'] = clean_name.strip()
-            
+        
         return valid_data
     except Exception as e:
         return {"error": f"에러 발생: {str(e)}"}
@@ -237,10 +241,7 @@ async def extract_insta_images(url=""):
                 results = await asyncio.gather(*tasks)
             
             # 2차원 리스트([[{},{}], [{},{}]])를 1차원으로 평탄화
-            for res, s3_key in results:
-                if s3_key:
-                        keys_to_delete.append(s3_key)
-                
+            for res in results:                
                 if res:
                     if isinstance(res, list):
                         ocr_results.extend(res)
@@ -250,15 +251,6 @@ async def extract_insta_images(url=""):
     except Exception as e:
         print(f"전체 프로세스 에러: {e}")
         return {"error": str(e)}
-    
-    finally:
-        if keys_to_delete:
-            print(f"S3 임시 파일 {len(keys_to_delete)}개 삭제 중...")
-            try:
-                delete_payload = {'Objects': [{'Key': k} for k in keys_to_delete]}
-                await asyncio.to_thread(s3.delete_objects, Bucket=FILE_NAME, Delete=delete_payload)
-            except Exception as e:
-                print(f"S3 삭제 실패: {e}")
     
     return image_urls, ocr_results
 
