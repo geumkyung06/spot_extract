@@ -239,9 +239,9 @@ async def analyze_instagram():
             if candidates:
                 # db에서 있는지 확인
                 # candidates = {'place': '아우스페이스', 'address': '경기도 파주시 탄현면 새오리로 145-21'}
-                existing_place, to_search_naver = check_db_have_place(candidates) 
+                existing_place, to_search_naver = check_db_have_place(candidates) # 이중 리스트
                 if existing_place:
-                        print(f"DB에 이미 있는 장소: {existing_place['name']}")
+                        logging.debug(f"DB에 이미 있는 장소(1번쨰만): {existing_place[0]}")
                         post_places.append(existing_place)
             else:
                 handle_fail_count(user_id) 
