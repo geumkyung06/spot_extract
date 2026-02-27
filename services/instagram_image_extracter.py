@@ -6,12 +6,9 @@ from playwright.async_api import async_playwright
 from google import genai
 from google.genai import types
 from PIL import Image
-import boto3
 
-s3 = boto3.client('s3')
-BUCKET_NAME = "spottests"
+FILE_NAME = "spot-ocr"
 # 설정
-
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -52,7 +49,6 @@ class BrowserManager:
 # 전역 브라우저 인스턴스 (재사용을 위해 함수 밖으로 뺌)
 global_browser_manager = BrowserManager()
 
-
 # 이미지 처리
 def crop_and_save_image(image_data, cut_height=250):
     try:
@@ -86,7 +82,6 @@ def crop_and_save_image(image_data, cut_height=250):
     except Exception as e:
         print(f"이미지 처리 에러: {e}")
         return None
-
 
 # 크롤링 로직 (리소스 차단 및 타임아웃 단축)
 async def extract_images(browser_manager: BrowserManager, post_url: str):
@@ -139,15 +134,12 @@ async def extract_images(browser_manager: BrowserManager, post_url: str):
 
     return ordered_images
 
-
 # 다운로드
 async def process_download(session, url, index):
     pattern = r'/(?:p|reel)/([^/?]+)'
     match = re.search(pattern, url)
     shortcut = match.group(1) if match else f"unknown_{uuid.uuid4().hex[:8]}"
     filename = f"image_{shortcut}_{index+1}.jpg"
-    
-    s3_key = f"places/ocr_images/{filename}" 
     
     try:
         async with session.get(url) as response:
@@ -160,24 +152,14 @@ async def process_download(session, url, index):
 
                 byte_buffer, pil_image = result # 언팩 에러 방지
 
-                def upload_s3():
-                    byte_buffer.seek(0) # 반드시 읽기 전 포인터 초기화
-                    s3.put_object(
-                        Bucket=BUCKET_NAME,
-                        Key=s3_key,
-                        Body=byte_buffer, 
-                        ContentType='image/jpeg'
-                    )
-                await asyncio.to_thread(upload_s3)
-                
                 async with sem:
                     ocr_result = await asyncio.to_thread(gemini_flash_ocr, pil_image)
 
-                return ocr_result, s3_key
+                return ocr_result
 
     except Exception as e:
         print(f"개별 처리 에러: {e}")
-        return None, s3_key # 에러나도 키는 반환해서 삭제 시도
+        return None
 
 def gemini_flash_ocr(pil_image):
     try:
@@ -274,7 +256,7 @@ async def extract_insta_images(url=""):
             print(f"S3 임시 파일 {len(keys_to_delete)}개 삭제 중...")
             try:
                 delete_payload = {'Objects': [{'Key': k} for k in keys_to_delete]}
-                await asyncio.to_thread(s3.delete_objects, Bucket=BUCKET_NAME, Delete=delete_payload)
+                await asyncio.to_thread(s3.delete_objects, Bucket=FILE_NAME, Delete=delete_payload)
             except Exception as e:
                 print(f"S3 삭제 실패: {e}")
     
