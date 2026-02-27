@@ -450,7 +450,7 @@ def save_places_to_db(new_places = []):
                     rating_avg=p_info.get('rating_avg'),
                     rating_count=p_info.get('rating_count'),
                     photo=p_info.get('photo', ''),
-                    gid=" "
+                    gid=f"TEMP_{uuid.uuid4().hex[:10]}" # 'TEMP_' 접두사를 붙여 나중에 팀원 데이터로 업데이트하기 쉽게 만듭니다.
                 )
                 db.session.add(place)
                 db.session.flush()  # flush를 해야 place.id가 생성됨
