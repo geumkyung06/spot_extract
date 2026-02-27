@@ -23,13 +23,16 @@ from routes.instagram import bp as instagram_bp
 from routes.places import user_places_bp
 from routes.friend import bp as friend_bp
 
-logging.basicConfig(level=logging.INFO)
+# 로깅 설정
+logging.basicConfig(level=logging.DEBUG)
+
 # pymysql 설정
 pymysql.install_as_MySQLdb()
 
 
 def create_app():
     app = Flask(__name__)
+    app.json.ensure_ascii = False
 
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET")
     app.config["JWT_ALGORITHM"] = os.getenv("JWT_ALGORITHM")
@@ -112,6 +115,7 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
+
     with app.app_context():
         try:
             db.create_all() # 나중에 flask-migra로 변경
