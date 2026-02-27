@@ -322,7 +322,7 @@ def extract_places_with_gpt(caption):
     GPT-4o-mini를 사용하여 캡션에서 장소 정보를 정형화된 JSON으로 추출
     """
     if not caption:
-        return [], "없음"
+        return []
 
     try:
         # 프롬프트: AI에게 역할을 부여하고 출력 형식을 강제함
@@ -358,7 +358,7 @@ def extract_places_with_gpt(caption):
 
     except Exception as e:
         logging.error(f"GPT Error: {e}")
-        return [], "에러"
+        return []
 
 def is_place_post(caption):
     try:
