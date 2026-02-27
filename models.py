@@ -43,7 +43,7 @@ class Place(db.Model):
     latitude = db.Column(db.Float)  
     longitude = db.Column(db.Float)
     
-    list = db.Column(db.Enum('accessory','bar','cafe','cloth','etc','restaurant')) 
+    list = db.Column(db.Enum('accessory','bar','cafe','cloth','etc','restaurant')) # 삭제해야할 듯?
     photo = db.Column(db.String(1000))
     
     rating_avg = db.Column(db.Float, default=0.0)
@@ -52,6 +52,8 @@ class Place(db.Model):
     score = db.Column(db.Float, default=0.0, nullable=False)
     search_count = db.Column(db.Integer, default=0, nullable=False)
     place_area_id = db.Column(db.BigInteger, nullable=True)
+
+    category = db.Column(db.Enum('restaurant','bar','cafe','dessert','exhibition','prop_shop','experience','clothing','etc')) 
 
 # list : exhibition, activitiy, prop_shop, clothing_store > cloth , dessert, cafe, bar, restaurant, etc
 
