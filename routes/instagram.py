@@ -6,6 +6,7 @@ import time
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import re
+import logging
 
 from services.instagram_text_parser import get_caption_no_login, split_caption, extract_places_with_gpt, is_place_post
 from services.instagram_image_extracter import global_browser_manager, extract_insta_images
@@ -75,9 +76,9 @@ async def analyze_instagram():
                     type: string
                     description: 도로명 주소
                     example: "서울 강남구 강남대로 123"
-                  list:
+                  category:
                     type: string
-                    description: 카테고리 (콤마로 구분된 문자열)
+                    description: 카테고리 (콤마로 구분된 문자열) list -> categry로 변경
                     example: "카페,디저트"
                   latitude:
                     type: number
@@ -162,6 +163,7 @@ async def analyze_instagram():
               type: string
     """ 
     try:
+        #user_id = 123456 #더미
         user_id = get_jwt_identity() 
 
         if not user_id:
@@ -175,28 +177,28 @@ async def analyze_instagram():
         url = data.get('url') # 프론트한테서 받아옴
         start = time.time()
         post_type, shortcut = extract_shortcode(url)
-        print(f"url: {url}, shortcut: {shortcut}")
+        logging.info(f"url: {url}, shortcut: {shortcut}")
 
         if not shortcut:
             return jsonify({'status': 'error', 'message': 'URL is required'}), 400
 
         url = f"https://www.instagram.com/p/{shortcut}"
-        print(f"[Start] 분석 시작: {url}")
+        logging.info(f"[Start] 분석 시작: {url}")
 
         post_places = [] # 프론트에 보낼 장소들 (name, address, category(list), rating_avg, rating_count)
         new_places = [] # db에 새로 저장할 장소들
         earned_score = 0.0
 
         # 1. DB에 이미 URL이 있는지 확인
-        print("DB에 존재하는 게시물인지 확인 중...")
+        logging.debug("DB에 존재하는 게시물인지 확인 중...")
         db_places = check_db_have_url(shortcut)
         
         if db_places:
-            print("DB 캐시 존재")
+            logging.info("[1] DB 캐시 존재")
             earned_score = 0.1 # 추출 전적 존재 0.1점
             post_places = db_places
         else:
-            print("DB에 없음. 캡션 분석 시도")
+            logging.info("[2] 캡션 분석 시도")
             # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
             # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
             # 캡션 추출
@@ -218,15 +220,17 @@ async def analyze_instagram():
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
-                print(f"InstaUrl 저장 실패: {e}")
+                logging.error(f"InstaUrl 저장 실패: {e}")
 
             # 캡션 파싱 로직
             candidates = await check_caption_place(caption)
 
             if not candidates:
-                print("캡션에서 장소 못 찾음. OCR 시도...")
-                images, candidates = await check_ocr_place(url)
-                img_count = len(images)
+                logging.info("[3] OCR 시도...")
+                img_count, candidates = await check_ocr_place(url)
+                if not img_count or not candidates:
+                    return jsonify({'status': 'success', 'message': "Analysis completed, but no location information found"}), 200
+                
                 earned_score = 1.0 * img_count
             else :
                 earned_score = 0.2 # caption
@@ -287,7 +291,7 @@ def check_db_have_url(url=""):
             "id": place.id,          
             "name": place.name,
             "address": place.address,
-            "list": place.list, 
+            "category": place.category, 
             "rating_avg": place.rating_avg,
             "rating_count": place.rating_count,
             "photo": place.photo    
@@ -331,7 +335,7 @@ def check_db_have_place(candidates=[]): # 장소명, 주소 한번에 보내기
                 "id": target_place.id,          
                 "name": target_place.name,
                 "address": target_place.address,
-                "list": target_place.list, 
+                "category": target_place.category, 
                 "rating_avg": target_place.rating_avg,
                 "rating_count": target_place.rating_count,
                 "photo": target_place.photo    
@@ -399,7 +403,7 @@ async def check_caption_place(caption=""):
 async def check_ocr_place(url=""):
 
     if not url:
-        return []
+        return [], []
 
     try:
         start_total = time.time()
@@ -413,24 +417,24 @@ async def check_ocr_place(url=""):
 
         if isinstance(final_places, dict) and "error" in final_places:
             print(f"추출 실패: {final_places['error']}")
-            return []
+            return [], []
 
         if not final_places:
             print("추출된 장소 정보가 없습니다.")
-            return []
+            return [], []
 
         # OCR은 돌렸는데 텍스트가 하나도 안 나온 경우
         if not final_places:
-            return []
+            return [], []
 
         end_total = time.time()
         total_time = end_total - start_total
         print(f"OCR 처리 시간: {total_time}s")
-        return images, final_places
+        return len(images), final_places
 
     except Exception as e:
         print(f"서버 에러: {e}")
-        return []
+        return [], []
     
 def save_places_to_db(new_places = []): 
     try :
@@ -444,7 +448,7 @@ def save_places_to_db(new_places = []):
                 place = Place(
                     name=p_info.get('name'),
                     address=p_info.get('address'),
-                    list=p_info.get('list'),
+                    category=p_info.get('category'),
                     latitude=p_info.get('latitude'),
                     longitude=p_info.get('longitude'),
                     rating_avg=p_info.get('rating_avg'),
