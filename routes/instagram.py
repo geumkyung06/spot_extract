@@ -24,7 +24,7 @@ bp = Blueprint('instagram', __name__)
 
 # 게시물 분석 후 장소 정보와 이미지를 DB에 저장 및 유저 화면에 반환
 @bp.route('/analyze', methods=['POST'])
-@jwt_required()
+#@jwt_required()
 async def analyze_instagram():
     """
     인스타그램 게시물 URL 분석 및 장소 추출
@@ -163,8 +163,8 @@ async def analyze_instagram():
               type: string
     """ 
     try:
-        #user_id = 123456 #더미
-        user_id = get_jwt_identity() 
+        user_id = 123456 #더미
+        #user_id = get_jwt_identity() 
 
         if not user_id:
             return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
