@@ -2,6 +2,7 @@ from flask import request
 import json, os, re, io
 import asyncio, aiohttp
 import uuid
+import logging
 from playwright.async_api import async_playwright
 from google import genai
 from google.genai import types
@@ -134,26 +135,24 @@ async def extract_images(browser_manager: BrowserManager, post_url: str):
     return ordered_images
 
 # 다운로드
-async def process_download(session, url, index):
-    pattern = r'/(?:p|reel)/([^/?]+)'
-    match = re.search(pattern, url)
-    shortcut = match.group(1) if match else f"unknown_{uuid.uuid4().hex[:8]}"
-    filename = f"image_{shortcut}_{index+1}.jpg"
+async def process_download(session, img_url):
+    # uuid
+    filename = f"image_{uuid.uuid4().hex[:10]}.jpg"
     
     try:
-        async with session.get(url) as response:
+        async with session.get(img_url) as response:
             if response.status == 200:
                 data = await response.read()
                 
                 result = await asyncio.to_thread(crop_and_save_image, data, 150)
                 # 크롭 결과가 None인지 확인
-                if not result: return None, None
+                if not result: 
+                    print(f"크롭 결과 없음: {result}]")
+                    return None, None
 
                 byte_buffer, pil_image = result # 언팩 에러 방지
-
                 async with sem:
                     ocr_result = await asyncio.to_thread(gemini_flash_ocr, pil_image)
-
                 return ocr_result
 
     except Exception as e:
@@ -166,29 +165,32 @@ def gemini_flash_ocr(pil_image):
         response = client.models.generate_content(
         model='gemini-2.5-flash-lite',
         contents=[
-            "이 이미지에서 가게의 '상호명(name)'과 '주소(address)'를 식별해서 추출해줘",
-            "만약 이미지에서 텍스트를 찾을 수 없거나, 해당 항목이 명확하지 않다면 억지로 만들지 말고 빈 문자열(\"\")로 채워",
+            "이미지에서 모든 텍스트를 추출(raw_text)한 뒤, 그 내용을 바탕으로 상호명과 주소(places)를 구분해서 정리해줘.",
             pil_image
         ],
         config=types.GenerateContentConfig(
             response_mime_type="application/json", 
             response_schema={
                 "type": "OBJECT",
-                    "properties": {
-                        "places": {
-                            "type": "ARRAY",
-                            "items": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "name": {"type": "STRING", "description": "가게 이름. 없으면 빈 문자열"},
-                                    "address": {"type": "STRING", "description": "도로명/지번 주소. 없으면 빈 문자열"}
-                                }
+                "properties": {
+                    "raw_text": {
+                        "type": "STRING", 
+                        "description": "이미지에 보이는 모든 텍스트를 빠짐없이 있는 그대로 먼저 다 적어."
+                    },
+                    "places": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "name": {"type": "STRING", "description": "가게 이름 (ex: 코히루). 없으면 빈 문자열"},
+                                "address": {"type": "STRING", "description": "도로명/지번 주소 (ex: 서울 중구 동호로...). 없으면 빈 문자열"}
                             }
                         }
-                    },
+                    }
+                }
             }
         )
-    )   
+    )  
         data = json.loads(response.text)
         
         places_list = data.get('places', [])
@@ -228,7 +230,6 @@ async def extract_insta_images(url=""):
     keys_to_delete = [] # 삭제할 파일 목록
     
     try:        
-        print(f"이미지 추출 시작: {target_url}")
         # 전역 매니저를 넘겨줌
         image_urls = await extract_images(global_browser_manager, target_url)
         print(f"{len(image_urls)}장 URL 확보 완료")
@@ -237,7 +238,7 @@ async def extract_insta_images(url=""):
             print("이미지 다운로드 및 변환 중...")
             connector = aiohttp.TCPConnector(limit=10)
             async with aiohttp.ClientSession(connector=connector) as session:
-                tasks = [process_download(session, url, i) for i, url in enumerate(image_urls)]
+                tasks = [process_download(session, img_url) for img_url in image_urls[1:]]
                 results = await asyncio.gather(*tasks)
             
             # 2차원 리스트([[{},{}], [{},{}]])를 1차원으로 평탄화
@@ -247,7 +248,7 @@ async def extract_insta_images(url=""):
                         ocr_results.extend(res)
                     elif isinstance(res, dict) and "error" not in res:
                         ocr_results.append(res)
-
+            print("OCR 결과: {ocr_results}")
     except Exception as e:
         print(f"전체 프로세스 에러: {e}")
         return {"error": str(e)}
