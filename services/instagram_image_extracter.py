@@ -165,11 +165,17 @@ def gemini_flash_ocr(pil_image):
         response = client.models.generate_content(
         model='gemini-2.5-flash-lite',
         contents=[
-            "이미지에서 모든 텍스트를 추출(raw_text)한 뒤, 그 내용을 바탕으로 상호명과 주소(places)를 구분해서 정리해줘.",
+            """이미지에서 텍스트를 추출할 때 다음 규칙을 절대적으로 준수해:
+            1. 너의 배경지식을 활용해 단어를 '교정'하거나 '추정'하지 마.
+            2. '삼원샏'처럼 한국어 맞춤법에 어긋나거나 생소한 단어라도 이미지에 보이는 '모양 그대로' 추출해.
+            3. 글자가 뭉쳐있다면 'ㅅ, ㅏ, ㅁ, ㅇ, ㅜ, ㅓ, ㄴ, ㅅ, ㅐ, ㄷ' 처럼 자음과 모음을 하나씩 꼼꼼히 확인해.
+            4. 이미지에서 모든 텍스트를 추출(raw_text)한 뒤, 그 내용을 바탕으로 상호명과 주소(places)를 구분해서 정리해줘.""",
             pil_image
         ],
         config=types.GenerateContentConfig(
             response_mime_type="application/json", 
+            temperature=0.0, 
+            top_p=0.1,   
             response_schema={
                 "type": "OBJECT",
                 "properties": {
@@ -191,6 +197,7 @@ def gemini_flash_ocr(pil_image):
             }
         )
     )  
+        
         data = json.loads(response.text)
         
         places_list = data.get('places', [])
