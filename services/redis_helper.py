@@ -20,7 +20,7 @@ def check_abuse_and_rate_limit(user_id):
         return False, "요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
         
     if not current_req:
-        redis_client.setex(rate_key, 60, 1)
+        redis_client.set(rate_key, 1, ex=60)
     else:
         redis_client.incr(rate_key)
         
@@ -35,7 +35,7 @@ def handle_fail_count(user_id):
         redis_client.expire(fail_key, 600) # 10분 내 연속 실패만 카운트
         
     if current_fail >= 5:
-        redis_client.setex(f"block:{user_id}", 600, "blocked") 
+        redis_client.set(f"block:{user_id}", "blocked", ex=600)
         redis_client.delete(fail_key)
 
 def add_score_and_check_ad(user_id, score_to_add):
@@ -51,8 +51,8 @@ def add_score_and_check_ad(user_id, score_to_add):
 
     # 점수 더하기
     if not redis_client.exists(score_key):
-        redis_client.setex(score_key, ttl, score_to_add)
-        redis_client.setex(target_key, ttl, 10) # 초기 목표 10점
+        redis_client.set(score_key, score_to_add, ex=ttl)
+        redis_client.set(target_key, 10, ex=ttl) # 초기 목표 10점
         current_score = score_to_add
     else:
         current_score = redis_client.incrbyfloat(score_key, score_to_add)
