@@ -370,7 +370,7 @@ def is_place_post(caption):
         info_keywords = ['📍', '주소', '위치', '🗓️', '기간', '일시', '운영', '지도', '근처']
         
         # 행동/추천 키워드
-        action_keywords = ['추천', '공유', '저장', '가보세', '방문', '데이트', '소개']
+        action_keywords = ['추천', '공유', '저장', '가보', '방문', '데이트', '소개']
 
         # 장소 키워드 출현 빈도
         place_score = sum(1 for word in place_keywords if word in caption)
@@ -381,7 +381,15 @@ def is_place_post(caption):
         # 행동 유도 유무
         action_score = sum(1 for word in action_keywords if word in caption)
 
-        is_valid = place_score >= 1 or info_score >= 1 or action_score >= 1
+        # 지역 키워드
+        region_score = sum(1 for word in KOREAN_REGIONS if word in caption)
+
+        has_place = 1 if place_score > 0 else 0
+        has_info = 1 if info_score > 0 else 0
+        has_action = 1 if action_score > 0 else 0
+        has_region = 1 if region_score > 0 else 0
+
+        is_valid = True if (has_place + has_info + has_action + has_region) > 1 else False
         
         logging.info(f"valid:{is_valid}\nscore - place:{place_score}, info:{info_score}, action:{action_score}")
         return is_valid
