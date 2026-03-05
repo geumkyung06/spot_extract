@@ -5,8 +5,10 @@ import time
 import uuid
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import quote_plus
+import geopandas as gpd
 import boto3
 import logging
+from models import db, Place, InstaUrl, UrlPlace
 
 s3 = boto3.client('s3')
 
@@ -127,8 +129,10 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
         "region": "KR"
     }
 
+    # name, address 결정 여부 정리
     result_data = {
-
+            "gid": " ", # gid
+            "name": " ",
             "address" : " ", # 네이버 검색 시도 시 없을 때
             "latitude": 0.0,
             "longitude": 0.0,
@@ -138,7 +142,6 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
             "photos": []      # 썸네일만
         }
 
-        
     try:
         r = requests.get(GOOGLE_TEXTSEARCH_URL, params=params, timeout=5)
         data = r.json()
@@ -152,8 +155,10 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
             best = data["results"][0]
             
             # 애초에 검색할 때 한번에 
-            # 주소 
-            if not address: result_data["address"] = best["formatted_address"]
+            # 주소
+            result_data["gid"] = best.get("place_id", "")
+            result_data["name"] = best.get("name", name)
+            result_data["address"] = best["formatted_address", address]
 
             # 좌표
             loc = best["geometry"]["location"]
@@ -186,53 +191,127 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
 
     return result_data
 
+def trans_geo(road_mapx, road_mapy) -> Tuple[float, float]:
+    gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy([int(road_mapx)], [int(road_mapy)]))
+    gdf.crs = 'epsg:5179' 
+    gdf = gdf.to_crs('epsg:4326')
+
+    lng = float(gdf['geometry'].x.iloc[0])
+    lat = float(gdf['geometry'].y.iloc[0])
+
+    return lng, lat 
+
 def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, address], [name, address]...]
     """
     입력된 장소명 리스트를 받아 네이버 검증 -> 구글 상세정보 병합 후 최종 데이터 반환
     """
     final_results = []
     
-
     for idx, query in enumerate(place_queries):
-        print(f"\n[Processing] {query}...")
-        road_name = query[0]
-        road_addr = query[1]
+        logging.debug(f"\n[Processing] {query}...")
+        new_places=[]
+        orig_name = query[0]
+        orig_addr = query[1] if len(query) > 1 else ""
         
+        # 네이버 검색해서 없으면 그냥 버리기
         # 네이버 검색
-        naver_item = _search_naver_local(road_name)
-
         if idx%5 == 0: time.sleep(0.3)
+
+        naver_success = False
+        road_name, road_addr = orig_name, orig_addr
+        lat, lng = 0.0, 0.0
+        naver_item = _search_naver_local(orig_name)
         if naver_item :
             # 네이버 데이터 정제
             road_name = re.sub(r'<[^>]+>', '', naver_item['title'])
             road_addr = naver_item.get('roadAddress') or naver_item.get('address')
+            road_mapx = naver_item.get('mapx') 
+            road_mapy = naver_item.get('mapy') 
+        
+            # DB 확인(위,경도값으로 place 내부 돌기)
+            # DB 있으니 다른 장소로 넘어가기
+            if road_mapx and road_mapy:
+                naver_success = True
+                # 위경도 변환 (경도, 위도 순서로 받음)
+                lng, lat = trans_geo(road_mapx, road_mapy)
             
-            logging.debug(f"[네이버 확인] 가게명: {road_name}, 주소: {road_addr}")
+                place = db.session.query(Place).filter(
+                    Place.latitude == lat, Place.longitude == lng
+                ).first()
 
+                if place:
+                    logging.debug(f"[DB Hit] 기존 장소 발견 (Naver 위경도): {place.name}")
+                    place_data = {       
+                    "name": place.name,
+                    "address": place.address,
+                    "category": place.category, 
+                    "latitude": place.latitude,
+                    "longitude": place.longitude,
+                    "rating_avg": place.rating_avg,
+                    "rating_count": place.rating_count,
+                    "gid": place.gid,
+                    "photo": place.photo    
+                    }   
+                    final_results.append(place_data)
+                    continue
         else:
-            logging.debug("네이버 검색 실패")
-            logging.debug(f"[기존 추출 내용] 가게명: {road_name}, 주소: {road_addr}")
+            logging.debug(f"[네이버 검색 실패] 가게명: {road_name}, 주소: {road_addr}")
             # 검색 결과 없으면 이름 바로 구글 검색
-
+    
         # 2. 구글 통합 검색 (좌표, 카테고리, 평점, 리뷰, 사진) 
         google_data = _fetch_google_details(road_name, road_addr, shortcut) # 주소 없어도 되나?
         
-        if road_addr == query[1]: road_addr = google_data["address"]
+        gid =  google_data.get("place_id")
+        if gid: 
+            place = db.session.query(Place).filter(Place.gid == gid).first()
+            if place:
+                logging.debug(f"[DB Hit] 기존 장소 발견 (Google gid): {place.name}")
+                place_data = {       
+                "name": place.name,
+                "address": place.address,
+                "category": place.category, 
+                "latitude": place.latitude,
+                "longitude": place.longitude,
+                "rating_avg": place.rating_avg,
+                "rating_count": place.rating_count,
+                "gid": place.gid,
+                "photo": place.photo    
+                }   
+                final_results.append(place_data)
+                continue            
 
         raw_photos = google_data.get("photos", [])
         # 3. 데이터 병합
         # 주소만 있는 경우도 설명하는가? >> 봐야함. 근데 아마 주소만 있으면 안되게 할 듯
-        place_obj = {
-            "name": road_name,
-            "address": road_addr,
-            "category": google_data.get("category", "etc"),  
-            "latitude": google_data.get("latitude", 0.0),
-            "longitude": google_data.get("longitude", 0.0),
-            "rating_avg": google_data.get("rating_avg", 0.0),
-            "rating_count": google_data.get("rating_count", 0),
-            "photo": raw_photos[0] if raw_photos else ""    # 썸네일 하나 저장
-        }
-        final_results.append(place_obj)
+        if naver_success:
+            final_name = road_name
+            final_address = road_addr
+            final_lat = lat
+            final_lng = lng
+        else:
+            final_name = google_data.get("name", road_name)
+            final_address = google_data.get("address", road_addr)
+            final_lat = google_data.get("latitude", 0.0)
+            final_lng = google_data.get("longitude", 0.0)
         
+        if final_name == "" and final_address == "":
+            logging.debug("[Google] 장소 추출 실패")
+            continue
+        else:
+            place_obj = {
+                "name": final_name,
+                "address": final_address,
+                "category": google_data.get("category", "etc"),  
+                "latitude": final_lat,
+                "longitude": final_lng,
+                "rating_avg": google_data.get("rating_avg", 0.0),
+                "rating_count": google_data.get("rating_count", 0),
+                "gid": gid if gid else "",
+                "photo": raw_photos[0] if raw_photos else ""    # 썸네일 하나 저장
+            }
+            final_results.append(place_obj)
+            new_places.append(place_obj)
         time.sleep(0.1)
-    return final_results
+    return final_results, new_places
+
+
