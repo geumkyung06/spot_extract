@@ -107,6 +107,11 @@ async def analyze_instagram():
               type: boolean
               description: 보상형 광고 노출 여부 (해당 값이 true일 때만 프론트에서 광고 팝업 노출)
               example: true
+            ad_score:
+              type: number
+              format: float
+              description: 이번 분석으로 획득한 광고 점수
+              example: 0.2
       400:
         description: 잘못된 요청 (URL 누락, 유효하지 않은 URL, 장소 게시물 아님)
         schema:
@@ -212,7 +217,7 @@ async def analyze_instagram():
                 handle_fail_count(user_id) # 실패 처리
                 return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
             
-            #url_place에 저장
+            #insta_url에 저장 / 장소를 url_place에 저장
             try:
                 save_caption = caption[:252] + "..." if caption and len(caption) > 255 else caption
                 new_entry = InstaUrl(url=shortcut, texts=save_caption)
@@ -221,7 +226,6 @@ async def analyze_instagram():
             except Exception as e:
                 db.session.rollback()
                 logging.error(f"InstaUrl 저장 실패: {e}")
-
             # 캡션 파싱 로직
             candidates = await check_caption_place(caption)
 
@@ -239,58 +243,63 @@ async def analyze_instagram():
             if candidates:
                 # db에서 있는지 확인
                 # candidates = {'place': '아우스페이스', 'address': '경기도 파주시 탄현면 새오리로 145-21'}
-                existing_place, to_search_naver = check_db_have_place(candidates) # 이중 리스트
-                if existing_place:
-                        logging.debug(f"DB에 이미 있는 장소(1번쨰만): {existing_place[0]}")
-                        post_places.append(existing_place)
+                # x,y 값으로 확인
+                for cand in candidates:
+                  input_name = cand.get('name')
+                  input_addr = cand.get('address', '').strip()
+                  to_search_naver.append([input_name, input_addr])
+
+                logging.debug(f"search list: {to_search_naver}")
+                search_results, new_places = process_places(to_search_naver, shortcut)
+                
+                post_places.extend(search_results)
+                logging.debug(f"post 장소들: {post_places}")
             else:
                 handle_fail_count(user_id) 
                 return jsonify({'status':'failed', 'message': "can not found places"}), 404
             
-            print(f"search list: {to_search_naver}")
-            if to_search_naver:
-                search_results = process_places(to_search_naver, shortcut)
-                
-                new_places.extend(search_results)
-                post_places.extend(search_results)
-
             if new_places:
-                save_places_to_db(new_places)
+                save_places_to_db(new_entry.id, new_places)
 
         redis_client.delete(f"fail_count:{user_id}")
         add_score_and_check_ad(user_id, earned_score) # 실패 초기화
         show_ad = False
 
         end = time.time()
-        print(f"time: {end-start: .2f}s")
+        logging.debug(f"time: {end-start: .2f}s")
         # 프론트에 보낼 장소 정보
-        return jsonify({'status':'success', 'results': post_places, 'show_ad': show_ad}), 200
+        return jsonify({'status':'success', 'results': post_places, 'show_ad': show_ad, 'ad_score':earned_score}), 200
 
     except Exception as e:
         db.session.rollback()
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 def check_db_have_url(url=""):
-    post_places = []
-    # DB에 이미 URL이 있는지 확인
-    # 해당 url 속 여러 장소 placeid_id 전부 가져오기 +  placeid_id / id 비교
-    existing_insta = (
+    target_url = db.session.query(InstaUrl).filter(InstaUrl.url.like(f"%{url}%")).first()
+    
+    # URL이 없으면 즉시 빈 리스트 반환
+    if not target_url:
+        return []
+    
+    # UrlPlace를 거쳐 Place 테이블에서 name과 address만 전부 가져오기
+    places = (
         db.session.query(Place)
         .join(UrlPlace, Place.id == UrlPlace.placeid_id)
-        .join(InstaUrl, UrlPlace.instaurl_id == InstaUrl.id) # InstaUrl까지 연결
-        .filter(InstaUrl.url == url) # InstaUrl 테이블의 url 컬럼 비교
+        .filter(UrlPlace.instaurl_id == target_url.id) # 앞에서 찾은 url_id로 필터링
         .all()
     )
-
-    if existing_insta:
-        # 이미 존재하면 해당 장소 불러오기
-        for place in existing_insta :
+    
+    if places:
+        post_places = []
+        for place in places :
             #existing_place = Place.query.filter_by(id=place.placeid_id).first() # placeid_id / id 비교
             place_data = {
             "id": place.id,          
             "name": place.name,
             "address": place.address,
+            "latitude": place.latitude, 
+            "longitude": place.longitude, 
             "category": place.category, 
             "rating_avg": place.rating_avg,
             "rating_count": place.rating_count,
@@ -300,54 +309,7 @@ def check_db_have_url(url=""):
             
         return post_places
     
-        
-def check_db_have_place(candidates=[]): # 장소명, 주소 한번에 보내기
-    post_places = [] 
-    no_places = []   
-
-    if not candidates:
-        return [], []
-
-    for cand in candidates:
-        input_name = cand.get('name')
-        input_addr = cand.get('address', '').strip()
-
-        # 이름 검색
-        found_places = Place.query.filter_by(name=input_name).all()
-        
-        target_place = None
-
-        if found_places:
-            if not input_addr:
-                # 주소 없으면 동명의 장소가 1개일 때만 확신하고 가져옴
-                if len(found_places) == 1:
-                    target_place = found_places[0]
-            else:
-                # 주소 비교
-                for db_place in found_places:
-                    if is_address_match(input_addr, db_place.address):
-                        target_place = db_place
-                        break
-
-        if target_place:
-            print(f"DB 캐시 Hit: {target_place.name} (ID: {target_place.id})")
-            place_data = {
-                "id": target_place.id,          
-                "name": target_place.name,
-                "address": target_place.address,
-                "category": target_place.category, 
-                "rating_avg": target_place.rating_avg,
-                "rating_count": target_place.rating_count,
-                "photo": target_place.photo    
-                }   
-            post_places.append(place_data) # extend 비교, 문제 생기는지 확인...
-        else:
-            print(f"검색 필요: {input_name}")
-
-            no_places.append([input_name, input_addr]) 
-        
-    return post_places, no_places
-
+    return [] # 검색 결과 없으면 빈 리스트 반환   
 
 def is_address_match(input_addr, db_addr):
     """
@@ -384,7 +346,7 @@ async def check_caption_place(caption=""):
     '''
     try:
         if not caption:
-            print("캡션을 찾을 수 없습니다.")
+            logging.info("캡션을 찾을 수 없습니다.")
             return []
         
         # 규칙 기반 좀 더 타이트하게 해야함
@@ -396,11 +358,11 @@ async def check_caption_place(caption=""):
         if not places:
             return []
         
-        print(f"places: {places}")
+        logging.debug(f"places: {places}")
         return places
 
     except Exception as e:
-        print(f"서버 에러: {e}")        
+        logging.error(f"서버 에러: {e}")        
         return []
 
 async def check_ocr_place(url=""):
@@ -410,7 +372,7 @@ async def check_ocr_place(url=""):
 
     try:
         start_total = time.time()
-        print(f"분석 요청: {url}")
+        logging.debug(f"분석 요청: {url}")
 
         # 이미지 URL 추출
         if not global_browser_manager.browser:
@@ -419,11 +381,11 @@ async def check_ocr_place(url=""):
         images, final_places = await extract_insta_images(url)
 
         if isinstance(final_places, dict) and "error" in final_places:
-            print(f"추출 실패: {final_places['error']}")
+            logging.info(f"추출 실패: {final_places['error']}")
             return [], []
 
         if not final_places:
-            print("추출된 장소 정보가 없습니다.")
+            logging.info("추출된 장소 정보가 없습니다.")
             return [], []
 
         # OCR은 돌렸는데 텍스트가 하나도 안 나온 경우
@@ -432,20 +394,17 @@ async def check_ocr_place(url=""):
 
         end_total = time.time()
         total_time = end_total - start_total
-        print(f"OCR 처리 시간: {total_time}s")
+        logging.debug(f"OCR 처리 시간: {total_time}s")
         return len(images), final_places
 
     except Exception as e:
-        print(f"서버 에러: {e}")
+        logging.error(f"서버 에러: {e}")
         return [], []
     
-def save_places_to_db(new_places = []): 
+def save_places_to_db(url_id, new_places = []): 
     try :
         for p_info in new_places:
-            place = Place.query.filter(
-                Place.name == p_info['name'],
-                Place.address == p_info['address']
-            ).first()
+            place = Place.query.filter(Place.gid == p_info['gid']).first()
 
             if not place:
                 place = Place(
@@ -457,19 +416,35 @@ def save_places_to_db(new_places = []):
                     rating_avg=p_info.get('rating_avg'),
                     rating_count=p_info.get('rating_count'),
                     photo=p_info.get('photo', ''),
-                    gid=f"TEMP_{uuid.uuid4().hex[:10]}" # 'TEMP_' 접두사를 붙여 나중에 팀원 데이터로 업데이트하기 쉽게 만듭니다.
+                    gid=p_info.get('gid', f"TEMP_{uuid.uuid4().hex[:10]}") # 'TEMP_' 접두사를 붙여 나중에 팀원 데이터로 업데이트하기 쉽게 만듭니다.
                 )
                 db.session.add(place)
                 db.session.flush()  # flush를 해야 place.id가 생성됨
+
+            link_exists = UrlPlace.query.filter_by(
+              instaurl_id=url_id, 
+              placeid_id=place.id
+            ).first()
+
+            # 연결이 없으면 새로 생성
+            if not link_exists:
+                logging.debug("url-place 연결 없음. 새로 생성")
+                url_place = UrlPlace(
+                    instaurl_id=url_id,
+                    placeid_id=place.id
+                )
+                db.session.add(url_place)
                 
-                print(f"[DB] Place saved (ID: {place.id})")
+                logging.info(f"[DB] New link created: URL {url_id} <-> Place {place.id}")
         db.session.commit()
+        logging.info("DB 저장 완료")
+      
     except Exception as e:
         db.session.rollback()
-        print(f"DB 저장 실패: {e}")
+        logging.error(f"DB 저장 실패: {e}")
 
 def extract_shortcode(url):
-    pattern = r'/(p|reels|tv)/([A-Za-z0-9\-_]+)'
+    pattern = r'/(p|reel|reels|tv)/([^/?#&]+)'
     
     match = re.search(pattern, url)
     if match:
