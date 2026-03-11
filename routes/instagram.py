@@ -196,8 +196,9 @@ async def analyze_instagram():
 
         # 1. DB에 이미 URL이 있는지 확인
         logging.debug("DB에 존재하는 게시물인지 확인 중...")
-        db_places = check_db_have_url(shortcut)
-        
+        url_id, caption, db_places = check_db_have_url(shortcut)
+        db_caption = bool(caption)
+
         if db_places:
             logging.info("[1] DB 캐시 존재")
             earned_score = 0.1 # 추출 전적 존재 0.1점
@@ -207,25 +208,27 @@ async def analyze_instagram():
             # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
             # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
             # 캡션 추출
-            caption = await get_caption_no_login(url)
-            if not caption:
-                return jsonify({'status': 'error', 'message': 'No caption'}), 400
+            if not db_caption:
+                caption = await get_caption_no_login(url)
+                if not caption:
+                    return jsonify({'status': 'error', 'message': 'No caption'}), 400
+              
+                # 장소 설명 게시물인지 확인
+                is_place = is_place_post(caption)
+                if not is_place:
+                    handle_fail_count(user_id) # 실패 처리
+                    return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
             
-            # 장소 설명 게시물인지 확인
-            is_place = is_place_post(caption)
-            if not is_place:
-                handle_fail_count(user_id) # 실패 처리
-                return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
-            
-            #insta_url에 저장 / 장소를 url_place에 저장
-            try:
-                save_caption = caption[:252] + "..." if caption and len(caption) > 255 else caption
-                new_entry = InstaUrl(url=shortcut, texts=save_caption)
-                db.session.add(new_entry)
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                logging.error(f"InstaUrl 저장 실패: {e}")
+                #insta_url에 저장 / 장소를 url_place에 저장
+                try:
+                    save_caption = caption[:252] + "..." if caption and len(caption) > 255 else caption
+                    new_entry = InstaUrl(url=shortcut, texts=save_caption)
+                    db.session.add(new_entry)
+                    db.session.commit()
+                    url_id = new_entry.id
+                except Exception as e:
+                    db.session.rollback()
+                    logging.error(f"InstaUrl 저장 실패: {e}")
             # 캡션 파싱 로직
             candidates = await check_caption_place(caption)
 
@@ -250,7 +253,7 @@ async def analyze_instagram():
                   to_search_naver.append([input_name, input_addr])
 
                 logging.debug(f"search list: {to_search_naver}")
-                search_results, new_places = process_places(to_search_naver, shortcut)
+                search_results = process_places(to_search_naver, shortcut)
                 
                 post_places.extend(search_results)
                 logging.debug(f"post 장소들: {post_places}")
@@ -258,8 +261,8 @@ async def analyze_instagram():
                 handle_fail_count(user_id) 
                 return jsonify({'status':'failed', 'message': "can not found places"}), 404
             
-            if new_places:
-                save_places_to_db(new_entry.id, new_places)
+            if search_results:
+                save_places_to_db(url_id, search_results)
 
         redis_client.delete(f"fail_count:{user_id}")
         add_score_and_check_ad(user_id, earned_score) # 실패 초기화
@@ -280,8 +283,9 @@ def check_db_have_url(url=""):
     
     # URL이 없으면 즉시 빈 리스트 반환
     if not target_url:
-        return []
+        return 0, "", []
     
+    texts= target_url.texts
     # UrlPlace를 거쳐 Place 테이블에서 name과 address만 전부 가져오기
     places = (
         db.session.query(Place)
@@ -289,9 +293,9 @@ def check_db_have_url(url=""):
         .filter(UrlPlace.instaurl_id == target_url.id) # 앞에서 찾은 url_id로 필터링
         .all()
     )
-    
+
+    post_places = []
     if places:
-        post_places = []
         for place in places :
             #existing_place = Place.query.filter_by(id=place.placeid_id).first() # placeid_id / id 비교
             place_data = {
@@ -305,11 +309,8 @@ def check_db_have_url(url=""):
             "rating_count": place.rating_count,
             "photo": place.photo    
             }   
-            post_places.append(place_data)
-            
-        return post_places
-    
-    return [] # 검색 결과 없으면 빈 리스트 반환   
+            post_places.append(place_data)  
+    return target_url.id, texts,post_places # 검색 결과 없으면 빈 리스트 반환   
 
 def is_address_match(input_addr, db_addr):
     """
