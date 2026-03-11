@@ -3,6 +3,7 @@ import json, os, re, io
 import asyncio, aiohttp
 import uuid
 import logging
+import html
 from playwright.async_api import async_playwright
 from google import genai
 from google.genai import types
@@ -86,7 +87,7 @@ def crop_and_save_image(image_data, cut_height=250):
 # 크롤링 로직 (리소스 차단 및 타임아웃 단축)
 async def extract_images(browser_manager: BrowserManager, post_url: str):
     ordered_images = [] 
-    seen_urls = set()
+    seen_base_urls = set()
 
     # 이미 켜져 있는 context에서 '탭'만 새로 엶
     page = await browser_manager.context.new_page()
@@ -97,48 +98,74 @@ async def extract_images(browser_manager: BrowserManager, post_url: str):
         else route.continue_()
     )
 
+    # 정규식 패턴: < or " 가 나오기 전까지의 URL 캡처
+    url_pattern = r'https://scontent[^\s"\'<]+|https:\\/\\/scontent[^\s"\'<]+'
+    dimension_pattern = re.compile(r'[ps]\d{2,4}x\d{2,4}')
+
+    def process_and_add(raw_urls):
+        for raw_url in raw_urls:
+            # 꼬리 자르기
+            clean_url = raw_url.split('\\u003C')[0].split('<')[0]
+            clean_url = clean_url.split('\\u0022')[0].split('"')[0]
+
+            # 디코딩
+            clean_url = clean_url.replace('\\/', '/')
+            clean_url = clean_url.replace('\\u0026', '&')
+            clean_url = clean_url.replace('\\u0025', '%') 
+            clean_url = html.unescape(clean_url)
+            
+            # 필러링 로직(비디오 등)
+            if ".mp4" in clean_url: continue 
+            if "dash" in clean_url or "segment" in clean_url.lower(): continue 
+            if "/t51.2885-19/" in clean_url: continue 
+            if "vp/" in clean_url: continue 
+            
+            # 고화질 추출 (아이콘, 작은 썸네일 제거)
+            if dimension_pattern.search(clean_url): continue # 예) p640x640 방지
+            if re.search(r'\/s\d{3,4}x\d{3,4}\/', clean_url): continue # 예) /s320x320/ 방지
+            if "c0." in clean_url: continue # 크롭된 썸네일 방지
+            
+            base_url = clean_url.split('?')[0]
+            
+            if base_url not in seen_base_urls:
+                seen_base_urls.add(base_url)
+                ordered_images.append(clean_url)
+
+    async def handle_response(response):
+        if "graphql/query" in response.url or "api/v1" in response.url:
+            try:
+                body = await response.text()
+                matches = re.findall(url_pattern, body)
+                process_and_add(matches)
+            except:
+                pass
+
+    page.on("response", handle_response)
+
     try:
-        # 타임아웃 5초 (메인 콘텐츠만 빠르게 로드)
-        await page.goto(post_url, wait_until="domcontentloaded", timeout=5000)
-        content = await page.content()
-
-        pattern = r'(https:\\/\\/scontent[^\s"]+)'
-        matches = re.findall(pattern, content)
-        dimension_pattern = re.compile(r'[ps]\d{2,4}x\d{2,4}')
-
-        for raw_url in matches:
-            url = raw_url.encode('utf-8').decode('unicode_escape').replace(r'\/', '/')
-            
-            # 필터링 로직
-            if "/t51.2885-19/" in url: continue
-            if any(x in url for x in ["vp/", "profile", "null", "sha256"]): continue
-            if dimension_pattern.search(url): continue
-            if "c0." in url: continue
-            
-            # 추가 필터 (아이콘, 작은 썸네일 제거)
-            if "/e35/" in url or "/e15/" in url: continue 
-            if re.search(r'\/s\d{3}x\d{3}\/', url): continue
-
-            if url not in seen_urls:
-                seen_urls.add(url)
-                ordered_images.append(url)
+        await page.goto(post_url, wait_until="domcontentloaded", timeout=10000)
         
+        # HTML에서 1차 추출
+        html_content = await page.content()
+        process_and_add(re.findall(url_pattern, html_content))
+
+        # 백그라운드 API 통신 대기 (제한 없이 3초 풀 대기)
+        for _ in range(6): 
+            await asyncio.sleep(0.5)
+
         # 안전장치: 너무 많이 잡히면 앞부분(메인사진)만 자름
         if len(ordered_images) > 10:
             ordered_images = ordered_images[:10]
 
     except Exception as e:
-        print(f"추출 중 에러 (Timeout 등): {e}")
+        print(f"추출 에러: {e}")
     finally:
-        await page.close() # 브라우저는 끄지 않고 탭만 닫음
+        await page.close()
 
     return ordered_images
 
 # 다운로드
 async def process_download(session, img_url):
-    # uuid
-    filename = f"image_{uuid.uuid4().hex[:10]}.jpg"
-    
     try:
         async with session.get(img_url) as response:
             if response.status == 200:
@@ -174,7 +201,7 @@ def gemini_flash_ocr(pil_image):
         ],
         config=types.GenerateContentConfig(
             response_mime_type="application/json", 
-            temperature=0.0, 
+            temperature=0.1, # 좀 더 테스트
             top_p=0.1,   
             response_schema={
                 "type": "OBJECT",
@@ -239,6 +266,7 @@ async def extract_insta_images(url=""):
     try:        
         # 전역 매니저를 넘겨줌
         image_urls = await extract_images(global_browser_manager, target_url)
+        print(image_urls[1])
         print(f"{len(image_urls)}장 URL 확보 완료")
 
         if image_urls:
