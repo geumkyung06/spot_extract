@@ -11,7 +11,6 @@ from flasgger import Swagger
 from flask_jwt_extended import JWTManager
 from services.browser import browser_service
 import asyncio
-import logging
 
 # 모델과 DB 객체 임포트
 from models import db
@@ -22,9 +21,7 @@ load_dotenv()
 from routes.instagram import bp as instagram_bp
 from routes.places import user_places_bp
 from routes.friend import bp as friend_bp
-
-# 로깅 설정
-logging.basicConfig(level=logging.DEBUG)
+from routes.profile import bp as profile_bp
 
 # pymysql 설정
 pymysql.install_as_MySQLdb()
@@ -105,6 +102,7 @@ def create_app():
     app.register_blueprint(instagram_bp)  
     app.register_blueprint(user_places_bp)
     app.register_blueprint(friend_bp)
+    app.register_blueprint(profile_bp)
 
     @app.before_request
     async def startup_browser():
