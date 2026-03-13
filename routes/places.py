@@ -1,10 +1,11 @@
-import logging
 from flask import Blueprint, request, jsonify, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models import db, Place, SavedPlace, SavedSeq
 user_places_bp = Blueprint("saved_places", __name__, url_prefix='/places')
 
+from services.my_logger import get_my_logger
+logger = get_my_logger(__name__)
 
 @user_places_bp.route("/", methods=["POST"])
 @jwt_required()

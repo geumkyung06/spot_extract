@@ -6,13 +6,15 @@ import time
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import re
-import logging
+
 
 from services.instagram_text_parser import get_caption_no_login, split_caption, extract_places_with_gpt, is_place_post
 from services.instagram_image_extracter import global_browser_manager, extract_insta_images
 from services.check_place import process_places
 from services.browser import browser_service
 from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad
+from services.my_logger import get_my_logger
+
 
 # models 파일에서 정의한 클래스들 임포트
 from models import db, Place, InstaUrl, UrlPlace
@@ -21,6 +23,7 @@ import uuid
 import shutil
 
 bp = Blueprint('instagram', __name__)
+logger = get_my_logger(__name__)
 
 # 게시물 분석 후 장소 정보와 이미지를 DB에 저장 및 유저 화면에 반환
 @bp.route('/analyze', methods=['POST'])
@@ -182,29 +185,29 @@ async def analyze_instagram():
         url = data.get('url') # 프론트한테서 받아옴
         start = time.time()
         post_type, shortcut = extract_shortcode(url)
-        logging.info(f"url: {url}, shortcut: {shortcut}")
+        logger.info(f"url: {url}, shortcut: {shortcut}")
 
         if not shortcut:
             return jsonify({'status': 'error', 'message': 'URL is required'}), 400
 
         url = f"https://www.instagram.com/p/{shortcut}"
-        logging.info(f"[Start] 분석 시작: {url}")
+        logger.info(f"[Start] 분석 시작: {url}")
 
         post_places = [] # 프론트에 보낼 장소들 (name, address, category(list), rating_avg, rating_count)
         new_places = [] # db에 새로 저장할 장소들
         earned_score = 0.0
 
         # 1. DB에 이미 URL이 있는지 확인
-        logging.debug("DB에 존재하는 게시물인지 확인 중...")
+        logger.debug("DB에 존재하는 게시물인지 확인 중...")
         url_id, caption, db_places = check_db_have_url(shortcut)
         db_caption = bool(caption)
 
         if db_places:
-            logging.info("[1] DB 캐시 존재")
+            logger.info("[1] DB 캐시 존재")
             earned_score = 0.1 # 추출 전적 존재 0.1점
             post_places = db_places
         else:
-            logging.info("[2] 캡션 분석 시도")
+            logger.info("[2] 캡션 분석 시도")
             # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
             # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
             # 캡션 추출
@@ -228,12 +231,12 @@ async def analyze_instagram():
                     url_id = new_entry.id
                 except Exception as e:
                     db.session.rollback()
-                    logging.error(f"InstaUrl 저장 실패: {e}")
+                    logger.error(f"InstaUrl 저장 실패: {e}")
             # 캡션 파싱 로직
             candidates = await check_caption_place(caption)
 
             if not candidates:
-                logging.info("[3] OCR 시도...")
+                logger.info("[3] OCR 시도...")
                 img_count, candidates = await check_ocr_place(url)
                 if not img_count or not candidates:
                     return jsonify({'status': 'success', 'message': "Analysis completed, but no location information found"}), 200
@@ -252,11 +255,11 @@ async def analyze_instagram():
                   input_addr = cand.get('address', '').strip()
                   to_search_naver.append([input_name, input_addr])
 
-                logging.debug(f"search list: {to_search_naver}")
+                logger.debug(f"search list: {to_search_naver}")
                 search_results = process_places(to_search_naver, shortcut)
                 
                 post_places.extend(search_results)
-                logging.debug(f"post 장소들: {post_places}")
+                logger.debug(f"post 장소들: {post_places}")
             else:
                 handle_fail_count(user_id) 
                 return jsonify({'status':'failed', 'message': "can not found places"}), 404
@@ -269,13 +272,13 @@ async def analyze_instagram():
         show_ad = False
 
         end = time.time()
-        logging.debug(f"time: {end-start: .2f}s")
+        logger.debug(f"time: {end-start: .2f}s")
         # 프론트에 보낼 장소 정보
         return jsonify({'status':'success', 'results': post_places, 'show_ad': show_ad, 'ad_score':earned_score}), 200
 
     except Exception as e:
         db.session.rollback()
-        logging.error(f"Error: {e}")
+        logger.error(f"Error: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 def check_db_have_url(url=""):
@@ -347,7 +350,7 @@ async def check_caption_place(caption=""):
     '''
     try:
         if not caption:
-            logging.info("캡션을 찾을 수 없습니다.")
+            logger.info("캡션을 찾을 수 없습니다.")
             return []
         
         # 규칙 기반 좀 더 타이트하게 해야함
@@ -359,11 +362,11 @@ async def check_caption_place(caption=""):
         if not places:
             return []
         
-        logging.debug(f"places: {places}")
+        logger.debug(f"places: {places}")
         return places
 
     except Exception as e:
-        logging.error(f"서버 에러: {e}")        
+        logger.error(f"서버 에러: {e}")        
         return []
 
 async def check_ocr_place(url=""):
@@ -373,7 +376,7 @@ async def check_ocr_place(url=""):
 
     try:
         start_total = time.time()
-        logging.debug(f"분석 요청: {url}")
+        logger.debug(f"분석 요청: {url}")
 
         # 이미지 URL 추출
         if not global_browser_manager.browser:
@@ -382,11 +385,11 @@ async def check_ocr_place(url=""):
         images, final_places = await extract_insta_images(url)
 
         if isinstance(final_places, dict) and "error" in final_places:
-            logging.info(f"추출 실패: {final_places['error']}")
+            logger.info(f"추출 실패: {final_places['error']}")
             return [], []
 
         if not final_places:
-            logging.info("추출된 장소 정보가 없습니다.")
+            logger.info("추출된 장소 정보가 없습니다.")
             return [], []
 
         # OCR은 돌렸는데 텍스트가 하나도 안 나온 경우
@@ -395,11 +398,11 @@ async def check_ocr_place(url=""):
 
         end_total = time.time()
         total_time = end_total - start_total
-        logging.debug(f"OCR 처리 시간: {total_time}s")
+        logger.debug(f"OCR 처리 시간: {total_time}s")
         return len(images), final_places
 
     except Exception as e:
-        logging.error(f"서버 에러: {e}")
+        logger.error(f"서버 에러: {e}")
         return [], []
     
 def save_places_to_db(url_id, new_places = []): 
@@ -429,20 +432,20 @@ def save_places_to_db(url_id, new_places = []):
 
             # 연결이 없으면 새로 생성
             if not link_exists:
-                logging.debug("url-place 연결 없음. 새로 생성")
+                logger.debug("url-place 연결 없음. 새로 생성")
                 url_place = UrlPlace(
                     instaurl_id=url_id,
                     placeid_id=place.id
                 )
                 db.session.add(url_place)
                 
-                logging.info(f"[DB] New link created: URL {url_id} <-> Place {place.id}")
+                logger.info(f"[DB] New link created: URL {url_id} <-> Place {place.id}")
         db.session.commit()
-        logging.info("DB 저장 완료")
+        logger.info("DB 저장 완료")
       
     except Exception as e:
         db.session.rollback()
-        logging.error(f"DB 저장 실패: {e}")
+        logger.error(f"DB 저장 실패: {e}")
 
 def extract_shortcode(url):
     pattern = r'/(p|reel|reels|tv)/([^/?#&]+)'

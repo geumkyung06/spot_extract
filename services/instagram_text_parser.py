@@ -2,12 +2,13 @@ import asyncio
 import json
 import re
 import os
-import logging
 from playwright.async_api import async_playwright
 from konlpy.tag import Kkma # 좀 더 가벼운 모델로 변경
 from collections import Counter
 from openai import OpenAI
+from services.my_logger import get_my_logger
 
+logger = get_my_logger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 KOREAN_REGIONS = [
@@ -66,7 +67,7 @@ async def get_caption_no_login(post_url: str):
         try:
             await page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
             
-            logging.debug("1단계: 일반 게시물 로직 시도...")
+            logger.debug("1단계: 일반 게시물 로직 시도...")
             
             # 일반 포스트
             # 1-1. JSON-LD
@@ -105,7 +106,7 @@ async def get_caption_no_login(post_url: str):
 
             # 릴스
             if not caption_text:
-                logging.debug("1단계 실패. 2단계(릴스 로직)로 전환합니다...")
+                logger.debug("1단계 실패. 2단계(릴스 로직)로 전환합니다...")
 
                 # 2-1. Meta Tag 추출
                 try:
@@ -150,12 +151,12 @@ async def get_caption_no_login(post_url: str):
                 
                 if caption_text:
                     # 성공 시: URL, 성공한 단계, 본문 앞부분 출력
-                    logging.info(f"[SUCCESS] {post_url} | Step: {success_step} | Text: {caption_text[:10]}...")
+                    logger.info(f"[SUCCESS] {post_url} | Step: {success_step} | Text: {caption_text[:10]}...")
                 else:
-                    logging.warning(f"[FAILED] {post_url} | 캡션을 찾지 못했습니다.")
+                    logger.warning(f"[FAILED] {post_url} | 캡션을 찾지 못했습니다.")
 
         except Exception as e:
-            logging.error(f"Playwright 에러: {e}")
+            logger.error(f"Playwright 에러: {e}")
         
         await browser.close()
 
@@ -187,7 +188,7 @@ def clean_text(text):
         # 한글 비중 체크 (영어만 있는 문단 제거)
         # 10% 미만이면 영어 문단으로 간주하고 버림
         if not is_korean_content(stripped_line, threshold=0.1):
-            logging.debug(f"영어 문단 제외됨: {stripped_line[:20]}...")
+            logger.debug(f"영어 문단 제외됨: {stripped_line[:20]}...")
             continue
             
         cleaned_list.append(stripped_line)
@@ -234,17 +235,17 @@ def check_rulebase_place(list_caption: list):
             try :
                 pos = kkma.pos(splits)
                 pattern = "description"
-                logging.debug(pos)
+                logger.debug(pos)
 
                 po_count = len(pos)
                 N_count = len([text for text, po in pos if po in allowed_tags])
                 ratio = N_count/po_count
             except Exception as e:
-                logging.error(f"Kkma 분석 에러 (내용: {splits}): {e}")
+                logger.error(f"Kkma 분석 에러 (내용: {splits}): {e}")
                 ratio = 0
                 pattern = "error"
 
-        logging.info(f"pattern: {pattern}, content: {splits}")
+        logger.info(f"pattern: {pattern}, content: {splits}")
         list_paragrath.append(ratio)
         list_paragrath.append(splits)
         list_caption_with_ratio.append(list_paragrath)
@@ -263,7 +264,7 @@ def check_place_in_caption(dict_paragraf: dict, list_caption: list):
         list_caption_with_ratio = data[0]
         address_idxs = data[1]
         address_count = len(address_idxs)
-        logging.debug(f"주소 개수: {address_count}")
+        logger.debug(f"주소 개수: {address_count}")
 
         if address_count :
             if address_count > 1: 
@@ -272,12 +273,12 @@ def check_place_in_caption(dict_paragraf: dict, list_caption: list):
             else : 
                 caption_list_with_chunk = [list_caption_with_ratio]
 
-            logging.debug(f"----주소 기준 문장 분할----\n{caption_list_with_chunk}")
+            logger.debug(f"----주소 기준 문장 분할----\n{caption_list_with_chunk}")
             result.append(check_base_on_address(caption_list_with_chunk, address_idxs))
             # number를 추가하게 되면 주소까지 한번에 나옴. > 근데 가게명에 넘버 있는 경우가 있음
             # 숫자 포함 후 > 주소 엮어서 확인 과정 필요
     
-    logging.info(f"주소 기준 분할 문장 : {len(caption_list_with_chunk)}개")
+    logger.info(f"주소 기준 분할 문장 : {len(caption_list_with_chunk)}개")
     return result
 
 def check_base_on_address(caption_list_with_chunk: list, address_idxs: list) :
@@ -292,13 +293,13 @@ def check_base_on_address(caption_list_with_chunk: list, address_idxs: list) :
         if copy_caption:
             address_idx = copy_address_idx.pop(0)
             del copy_caption[address_idx]
-        logging.debug(f"주소 인덱스 삭제: {copy_caption}")
+        logger.debug(f"주소 인덱스 삭제: {copy_caption}")
 
         ratio_max = max(copy_caption)
         original_idx = caption.index(ratio_max)
         ratio_idx.append(original_idx)
 
-    logging.debug(f"주소 제외 명사 비율 최대 인덱스: {ratio_idx}")
+    logger.debug(f"주소 제외 명사 비율 최대 인덱스: {ratio_idx}")
     if not ratio_idx: return result
 
     place_idxs = Counter(ratio_idx)
@@ -308,7 +309,7 @@ def check_base_on_address(caption_list_with_chunk: list, address_idxs: list) :
     address_idx = Counter(copy_address_idx)
     address_idx = address_idx.most_common(n=1)[0][0]
     '''address_idx = copy_address_idx.pop(0)'''
-    logging.debug(f"장소 인덱스: {place_idx}, 주소 인덱스: {address_idx}")
+    logger.debug(f"장소 인덱스: {place_idx}, 주소 인덱스: {address_idx}")
 
     # [{'name': '상호명1', 'address': '주소1'}, ...]
     for caption in caption_list_with_chunk:
@@ -319,7 +320,7 @@ def check_base_on_address(caption_list_with_chunk: list, address_idxs: list) :
 
 def extract_places_with_gpt(caption):
     """
-    GPT-4o-mini를 사용하여 캡션에서 장소 정보를 정형화된 JSON으로 추출
+    gpt-4.1-nano를 사용하여 캡션에서 장소 정보를 정형화된 JSON으로 추출
     """
     if not caption:
         return []
@@ -327,7 +328,7 @@ def extract_places_with_gpt(caption):
     try:
         # 프롬프트: AI에게 역할을 부여하고 출력 형식을 강제함
         response = client.chat.completions.create(
-            model="gpt-4o-mini", 
+            model="gpt-4.1-nano", 
             messages=[
                 {
                     "role": "system",
@@ -357,7 +358,7 @@ def extract_places_with_gpt(caption):
         return places
 
     except Exception as e:
-        logging.error(f"GPT Error: {e}")
+        logger.error(f"GPT Error: {e}")
         return []
 
 def is_place_post(caption):
@@ -391,43 +392,43 @@ def is_place_post(caption):
 
         is_valid = True if (has_place + has_info + has_action + has_region) > 1 else False
         
-        logging.info(f"valid:{is_valid}\nscore - place:{place_score}, info:{info_score}, action:{action_score}")
+        logger.info(f"valid:{is_valid}\nscore - place:{place_score}, info:{info_score}, action:{action_score}")
         return is_valid
 
     except Exception as e:
-        logging.error(f"Error: {e}", flush=True)
+        logger.error(f"Error: {e}", flush=True)
         return False, "에러"
 
 # 규칙 기반 수정해야함 -> 그전까지 일단 ai만 사용
 def split_caption(caption):
     if not caption:
-        logging.info("No caption")
+        logger.info("No caption")
         return
 
     cleaned_caption, list_caption = clean_text(caption)
     
-    logging.debug(cleaned_caption)
+    logger.debug(cleaned_caption)
  
     try:
-        logging.info("[형태소 분석 중...]")
+        logger.info("[형태소 분석 중...]")
         dict_paragraf = {} # {문단 : [list_caption_with_ratio, address_idxs]}
         have_address = 0
 
         for idx, text in enumerate(list_caption): # 문단별로 파악
             list_caption_with_ratio, address_idxs = check_rulebase_place(text)
-            logging.debug(f"---------list_caption_with_ratio-------- \n{list_caption_with_ratio}")
-            logging.debug(f"---------address_idxs-------- \n{address_idxs}")
+            logger.debug(f"---------list_caption_with_ratio-------- \n{list_caption_with_ratio}")
+            logger.debug(f"---------address_idxs-------- \n{address_idxs}")
             if address_idxs: have_address = 1
             dict_paragraf[idx] = [list_caption_with_ratio, address_idxs]
 
         if have_address : 
             result = check_place_in_caption(dict_paragraf , list_caption)
         else:
-            logging.info("장소 아님")
+            logger.info("장소 아님")
         
-        logging.info(f"추출 결과 :{result}")
+        logger.info(f"추출 결과 :{result}")
         return result
 
     except Exception as e:
-        logging.error(f"분석 에러: {e}")
+        logger.error(f"분석 에러: {e}")
         return []

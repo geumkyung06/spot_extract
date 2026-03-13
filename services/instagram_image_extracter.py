@@ -2,16 +2,17 @@ from flask import request
 import json, os, re, io
 import asyncio, aiohttp
 import uuid
-import logging
 import html
 from playwright.async_api import async_playwright
 from google import genai
 from google.genai import types
 from PIL import Image
+from services.my_logger import get_my_logger
 
 # 설정
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+logger = get_my_logger(__name__)
 client = genai.Client(api_key=GEMINI_API_KEY)
 sem = asyncio.Semaphore(3) # OCR 동시 요청 제한
 

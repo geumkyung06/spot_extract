@@ -7,9 +7,11 @@ from typing import List, Dict, Optional, Tuple
 from urllib.parse import quote_plus
 import geopandas as gpd
 import boto3
-import logging
-from models import db, Place, InstaUrl, UrlPlace
 
+from models import db, Place, InstaUrl, UrlPlace
+from services.my_logger import get_my_logger
+
+logger = get_my_logger(__name__)
 s3 = boto3.client('s3')
 
 SEARCH_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
@@ -60,7 +62,7 @@ def _map_google_category(google_types: list) -> str:
     # 9. 기타
         result_category = "etc"
 
-    logging.debug(f"분류: {result_category}, 구글 카테고리: {types_set}")
+    logger.debug(f"분류: {result_category}, 구글 카테고리: {types_set}")
 
     return result_category
 def _download_google_photo(shortcut, photo_reference: str) -> Optional[str]:
@@ -205,7 +207,7 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
             result_data["photos"] = saved_paths
             
     except Exception as e:
-        logging.error(f"❌ [Google Details Error 상세]: {type(e).__name__} - {e}")
+        logger.error(f"❌ [Google Details Error 상세]: {type(e).__name__} - {e}")
 
     return result_data
 
@@ -228,12 +230,12 @@ def trans_geo(road_mapx, road_mapy) -> Tuple[float, float]:
 
         # 값을 벗어나면 0 리턴
         if not (33 < lat < 43 and 124 < lng < 132):
-            logging.warning(f"좌표가 한국 범위를 벗어남: lat={lat}, lng={lng}")
+            logger.warning(f"좌표가 한국 범위를 벗어남: lat={lat}, lng={lng}")
             return 0.0, 0.0
             
         return lng, lat
     except Exception as e:
-        logging.error(f"trans_geo 변환 중 오류 발생: {e}")
+        logger.error(f"trans_geo 변환 중 오류 발생: {e}")
         return 0.0, 0.0
 
 def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, address], [name, address]...]
@@ -243,7 +245,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
     final_results = []
     
     for idx, query in enumerate(place_queries):
-        logging.debug(f"\n[Processing] {query}...")
+        logger.debug(f"\n[Processing] {query}...")
         orig_name = query[0]
         orig_addr = query[1] if len(query) > 1 else ""
         
@@ -262,7 +264,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
             road_mapx = naver_item.get('mapx') 
             road_mapy = naver_item.get('mapy') 
 
-            logging.debug(f"x: {road_mapx} y: {road_mapy}")
+            logger.debug(f"x: {road_mapx} y: {road_mapy}")
             # DB 확인(위,경도값으로 place 내부 돌기)
             # DB 있으니 다른 장소로 넘어가기
             if road_mapx and road_mapy:
@@ -275,7 +277,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
                 ).first()
 
                 if place:
-                    logging.debug(f"[DB Hit] 기존 장소 발견 (Naver 위경도): {place.name}")
+                    logger.debug(f"[DB Hit] 기존 장소 발견 (Naver 위경도): {place.name}")
                     place_data = {       
                     "name": place.name,
                     "address": place.address,
@@ -290,7 +292,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
                     final_results.append(place_data)
                     continue
         else:
-            logging.debug(f"[네이버 검색 실패] 가게명: {road_name}, 주소: {road_addr}")
+            logger.debug(f"[네이버 검색 실패] 가게명: {road_name}, 주소: {road_addr}")
             # 검색 결과 없으면 이름 바로 구글 검색
     
         # 2. 구글 통합 검색 (좌표, 카테고리, 평점, 리뷰, 사진) 
@@ -300,7 +302,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
         if gid: 
             place = db.session.query(Place).filter(Place.gid == gid).first()
             if place:
-                logging.debug(f"[DB Hit] 기존 장소 발견 (Google gid): {place.name}")
+                logger.debug(f"[DB Hit] 기존 장소 발견 (Google gid): {place.name}")
                 place_data = {       
                 "name": place.name,
                 "address": place.address,
@@ -330,7 +332,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
             final_lng = google_data.get("longitude", 0.0)
         
         if final_name == "" and final_address == "":
-            logging.debug("[Google] 장소 추출 실패")
+            logger.debug("[Google] 장소 추출 실패")
             continue
         else:
             place_obj = {
