@@ -9,7 +9,7 @@ from services.my_logger import get_my_logger
 logger = get_my_logger(__name__)
 
 @bp.route("/id_check", methods=["GET"])
-#@jwt_required()
+@jwt_required()
 def check_spot_id():
     """
     Spot ID 중복 확인 API
@@ -56,7 +56,7 @@ def check_spot_id():
         description: "인증 실패 (토큰 누락 및 만료)"
     """
     # get. spot_id
-    user_id = 1234
+    user_id = get_jwt_identity() 
     spot_id = request.args.get('spot_id')
 
     if not user_id:
