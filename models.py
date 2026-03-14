@@ -147,4 +147,4 @@ class Comment(db.Model):
 class SavedSeq(db.Model):
     __tablename__ = 'saved_place_seq'
     
-    next_val = db.Column(db.BigInteger, default=0)
+    next_val = db.Column(db.BigInteger, primary_key=True, default=0)
