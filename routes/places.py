@@ -93,12 +93,15 @@ def save_user_places():
                 place_exists.saved_count = (place_exists.saved_count or 0) + 1
                 
                 saved_count += 1
+            logger.debug(f"저장수: {saved_count}")
 
         if saved_count > 0:
             seq_row = SavedSeq.query.first() 
             if seq_row:
                 seq_row.next_val = (seq_row.next_val or 0) + saved_count
-
+            else:
+                new_seq = SavedSeq(next_val=saved_count)
+                db.session.add(new_seq)
         db.session.commit()
 
         return jsonify({
