@@ -42,8 +42,11 @@ def save_user_places():
     """
 
     try:
+        #user_id = 1234
         user_id = get_jwt_identity() 
-
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
+        
         body = request.get_json() or {}
         save_type = body.get("save_type", "spot") # 기본값 설정 - 인스타에선 "instagram"
 
@@ -67,7 +70,7 @@ def save_user_places():
         # DB 저장
         for pid in target_ids:
             # 장소가 실제로 존재하는지 확인
-            place_exists = Place.query.get(pid)
+            place_exists = Place.query.filter_by(id=pid).first()
             if not place_exists:
                 continue
 
