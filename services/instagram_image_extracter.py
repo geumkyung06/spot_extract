@@ -233,9 +233,14 @@ def gemini_flash_ocr(pil_image):
         
         # 정제 로직
         for item in valid_data:
-            clean_addr = re.sub(r'#\S+', '', item.get('address', ''))
-            clean_addr = re.sub(r'[^\w\s\(\)\-,.]', '', clean_addr) 
-            clean_name = item.get('name', '').replace('#', '')
+            # item['address']나 item['name'] None 경우 대비
+            raw_addr = item.get('address') or ""
+            raw_name = item.get('name') or ""
+            
+            clean_addr = re.sub(r'#\S+', '', raw_addr)
+            clean_addr = re.sub(r'[^\w\s\(\)\-,.]', '', clean_addr)
+            
+            clean_name = raw_name.replace('#', '')
             clean_name = re.sub(r'[^\w\s\(\)\-,.&\'\+]', '', clean_name)
             
             item['address'] = clean_addr.strip()
