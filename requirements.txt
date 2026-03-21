@@ -12,6 +12,7 @@ PyMySQL
 mysql-connector-python
 cryptography
 redis
+cryptography
 
 # Environment Variables
 python-dotenv
