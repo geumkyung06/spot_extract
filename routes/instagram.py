@@ -224,8 +224,7 @@ async def analyze_instagram():
             
                 #insta_url에 저장 / 장소를 url_place에 저장
                 try:
-                    save_caption = caption[:252] + "..." if caption and len(caption) > 255 else caption
-                    new_entry = InstaUrl(url=shortcut, texts=save_caption)
+                    new_entry = InstaUrl(url=shortcut, texts=caption or "")
                     db.session.add(new_entry)
                     db.session.commit()
                     url_id = new_entry.id
@@ -252,13 +251,15 @@ async def analyze_instagram():
                 # x,y 값으로 확인
                 for cand in candidates:
                   input_name = cand.get('name')
-                  input_addr = cand.get('address', '').strip()
+                  input_addr = (cand.get('address') or "").strip()
                   to_search_naver.append([input_name, input_addr])
 
                 logger.debug(f"search list: {to_search_naver}")
                 search_results = process_places(to_search_naver, shortcut)
                 
-                post_places.extend(search_results)
+                add_places = get_new_unique_places(post_places, search_results)
+                logger.debug(f"합치기 전 장소들: {post_places}")
+                post_places.extend(add_places)
                 logger.debug(f"post 장소들: {post_places}")
             else:
                 handle_fail_count(user_id) 
@@ -314,35 +315,6 @@ def check_db_have_url(url=""):
             }   
             post_places.append(place_data)  
     return target_url.id, texts,post_places # 검색 결과 없으면 빈 리스트 반환   
-
-def is_address_match(input_addr, db_addr):
-    """
-    인스타 주소가 DB 주소에 포함되는지 확인
-    ex) input: "연남동", DB: "서울 마포구 연남동 123" -> True
-    """
-    if not db_addr: return False
-
-    # 공백 제거 후 단순 포함 관계 확인
-    # ex) "마포구연남동" in "서울마포구연남동123"
-    clean_input = input_addr.replace(" ", "")
-    clean_db = db_addr.replace(" ", "")
-    
-    if clean_input in clean_db:
-        return True
-
-    input_tokens = set(input_addr.split())
-    
-    # DB 주소 안에 인스타 주소의 단어들이 얼마나 들어있는지 확인
-    match_count = 0
-    for token in input_tokens:
-        if token in db_addr: # "연남동"이 DB 주소 문자열 안에 있는가?
-            match_count += 1
-    
-    # 인스타 주소 단어의 70% 이상이 DB 주소에 포함되면 같은 곳으로 간주
-    if len(input_tokens) > 0 and (match_count / len(input_tokens) >= 0.7):
-        return True
-        
-    return False
     
 async def check_caption_place(caption=""):
     '''
@@ -456,3 +428,21 @@ def extract_shortcode(url):
         shortcode = match.group(2) 
         return post_type, shortcode
     return None, None
+
+def get_new_unique_places(existing_places, new_places):
+    existing_keys = {
+        f"{p.get('gid', '')}" 
+        for p in existing_places
+    }
+    
+    unique_new_places = []
+    
+    for place in new_places:
+        key = f"{place.get('gid', '')}"
+        
+        # 기존에 없는 장소
+        if key not in existing_keys:
+            unique_new_places.append(place)
+            existing_keys.add(key) 
+            
+    return unique_new_places
