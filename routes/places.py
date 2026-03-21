@@ -49,19 +49,22 @@ def save_user_places():
         
         body = request.get_json() or {}
         save_type = body.get("save_type", "spot") # 기본값 설정 - 인스타에선 "instagram"
+        logger.debug(f"수신된 전체 바디: {body}") # 로그 추가
+        
+        input_ids = body.get("place_ids", [])
+        logger.debug(f"추출된 input_ids: {input_ids}") # 로그 추가
 
         target_ids = set()
-                
-        input_ids = body.get("place_ids", [])
-        
         if isinstance(input_ids, list):
             for pid in input_ids:
                 try:
-                    if pid:
+                    if pid is not None and str(pid).strip() != "": # 체크 강화
                         target_ids.add(int(pid))
-                except ValueError:
+                except (ValueError, TypeError):
+                    logger.warning(f"숫자 변환 실패: {pid}") # 실패 로그
                     continue
         
+        logger.debug(f"최종 target_ids: {target_ids}") # 최종 결과 확인        
         if not target_ids:
             return jsonify({"error": "No place_ids provided"}), 400
 
