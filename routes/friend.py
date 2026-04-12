@@ -1,6 +1,7 @@
 import os
 import pymysql
 import random
+import math
 
 from flask import Blueprint, jsonify, request, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -424,6 +425,9 @@ def get_friend_places(friend_id):
                 type: number
               isMarked:
                 type: boolean
+              saversCount:
+                type: integer
+                description: "이 장소를 저장한 친구들의 총 수 (프로필 주인 포함)"
               savers:
                 type: array
                 items:
@@ -433,9 +437,24 @@ def get_friend_places(friend_id):
                       type: string
                     profileImageUrl:
                       type: string
+              distance:
+                type: number
+                description: "현재 위치와의 거리 (km)"
+                example: 1.25
     """    
-
     user_id = get_jwt_identity()
+
+    # 현재 위치 파라미터 가져오기
+    try:
+        current_lat = request.args.get("lat", type=float)
+        current_lng = request.args.get("lng", type=float)
+    except (TypeError, ValueError):
+        current_lat, current_lng = None, None
+
+    my_friends = Friend.query.filter_by(member_id=user_id, status='friend').all()
+    my_friend_ids = [f.friend_id for f in my_friends]
+
+    other_saver_ids = list(set(my_friend_ids + [user_id]))
 
     # 정렬 및 필터 파라미터
     sort_by = request.args.get("sort", "latest")
@@ -460,73 +479,80 @@ def get_friend_places(friend_id):
             p.address,
             p.latitude,
             p.longitude,
-            p.list AS list,
+            p.list AS category,
             p.photo,
             p.rating_avg AS ratingAvg,
             p.rating_count AS ratingCount,
-            sp.rating AS friendRating,
-            sp.content AS content,
-            sp.updated_at,
-            k.spot_nickname AS friend_nickname,
-            k.photo AS friend_photo,
+            target_sp.rating AS targetFriendRating,
+            target_sp.updated_at AS target_updated_at,
+            f_k.spot_nickname AS friend_nickname,
+            f_k.photo AS friend_photo,
+            f_sp.updated_at AS friend_updated_at,
             CASE WHEN my_sp.id IS NOT NULL THEN TRUE ELSE FALSE END AS isMarked
-        FROM saved_place sp
-        JOIN place p ON sp.place_id = p.id
-        JOIN kakao_mem k ON sp.user_id = k.id
+        FROM saved_place target_sp
+        JOIN place p ON target_sp.place_id = p.id
+        JOIN kakao_mem k ON target_sp.user_id = k.id
+        LEFT JOIN saved_place f_sp ON p.id = f_sp.place_id AND f_sp.user_id IN ({})
+        LEFT JOIN kakao_mem f_k ON f_sp.user_id = f_k.id
         LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
-        WHERE sp.user_id = %s
-    """
+        WHERE target_sp.user_id = %s
+    """.format(', '.join(['%s'] * len(other_saver_ids)) if other_saver_ids else "NULL")
     
-    # 내 아이디: JOIN용, 친구 아이디 : WHERE용
-    params = [user_id, friend_id]
+    # 순서: [IN 절의 친구ID들] + [isMarked용 내ID] + [WHERE 절의 대상친구ID]
+    params = other_saver_ids + [user_id, friend_id]
 
     if category_filter and category_filter in valid_categories:
         query += " AND p.list = %s"
         params.append(category_filter)
 
-    # 정렬 방법
-    # 최신순(latest)이 기본, 별점순(star) 선택 가능
-    if sort_by == "star":
-        order_clause = "sp.rating DESC, sp.updated_at DESC"
-    else:
-        order_clause = "sp.updated_at DESC"
-
+    order_clause = "target_sp.rating DESC, target_sp.updated_at DESC" if sort_by == "star" else "target_sp.updated_at DESC"
     query += f" ORDER BY {order_clause}"
 
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
 
-    # 데이터 없으면 바로 리턴
     if not rows:
         return jsonify([]), 200
     
-    result_places = []
-
+    places_dict = {}
     for row in rows:
-        place_data = {
-            "placeId": row['placeId'],
-            "gId": row['gid'],
-            "name": row['name'],
-            "address": row['address'],
-            "latitude": row['latitude'] if row['latitude'] else 0.0,
-            "longitude": row['longitude'] if row['longitude'] else 0.0,
-            "list": row['list'],
-            "photo": row['photo'] if row['photo'] else "",
-            "ratingAvg": row['ratingAvg'] if row['ratingAvg'] else 0.0,
-            "ratingCount": row['ratingCount'] if row['ratingCount'] else 0,
-            "myRating": row['friendRating'], # 친구가 매긴 거
-            "savers": [
-                {
+        pid = row['placeId']
+        if pid not in places_dict:
+            dist = calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
+            
+            places_dict[pid] = {
+                "placeId": pid,
+                "gId": row['gid'],
+                "name": row['name'],
+                "address": row['address'],
+                "latitude": float(row['latitude']) if row['latitude'] else 0.0,
+                "longitude": float(row['longitude']) if row['longitude'] else 0.0,
+                "list": row['category'],
+                "photo": row['photo'] if row['photo'] else "",
+                "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
+                "myRating": row['targetFriendRating'], # 친구의 별점
+                "isMarked": bool(row['isMarked']),
+                "distance": dist,
+                "saversCount": 0,
+                "savers": []
+            }
+        
+        if row['friend_nickname']:
+            if not any(s['nickname'] == row['friend_nickname'] for s in places_dict[pid]["savers"]):
+                places_dict[pid]["savers"].append({
                     "nickname": row['friend_nickname'],
-                    "profileImageUrl": row['friend_photo'] if row['friend_photo'] else ""
-                }
-            ],
-            "distance": 0, # 현재 내 위치 좌표가 없으므로 0 처리
-            "isMarked": bool(row['isMarked']) # 0/1 -> True/False로 변환
-        }
-        result_places.append(place_data)
+                    "profileImageUrl": row['friend_photo'] if row['friend_photo'] else "",
+                    "updated_at": row['friend_updated_at']
+                })
 
-    return jsonify(result_places), 200
+    result_list = list(places_dict.values())
+    for place in result_list:
+        place["savers"].sort(key=lambda x: x['updated_at'], reverse=True)
+        place["saversCount"] = len(place["savers"])
+        for saver in place["savers"]:
+            del saver['updated_at']
+
+    return jsonify(result_list), 200
 
 # 친구가 남긴 코멘트 전체 조회
 @bp.route('/main/comment/<int:friend_id>', methods=['GET'])
@@ -1048,10 +1074,21 @@ def get_all_places():
                     profileImageUrl:
                       type: string
                       example: "https://profile_url.com/p.jpg"
+              distance:
+                type: number
+                description: "현재 위치와의 거리 (km)"
+                example: 1.25
       401:
         description: 인증 실패 (JWT 토큰 누락 또는 만료)
     """
     user_id = get_jwt_identity()
+
+  # 현재 위치 파라미터 가져오기
+    try:
+        current_lat = request.args.get("lat", type=float)
+        current_lng = request.args.get("lng", type=float)
+    except (TypeError, ValueError):
+        current_lat, current_lng = None, None
 
     friends = Friend.query.filter_by(member_id=user_id, status='friend').all() # friend_id 검색
     friend_ids = [f.friend_id for f in friends]
@@ -1123,10 +1160,11 @@ def get_all_places():
         return jsonify([]), 200
     
     places_dict = {}
-
     for row in rows:
         pid = row['placeId']
         if pid not in places_dict:
+            dist = calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
+
             places_dict[pid] = {
                 "placeId": pid,
                 "gId": row['gid'],
@@ -1139,6 +1177,7 @@ def get_all_places():
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['friendRating'], # 가장 최근 혹은 정렬된 첫 번째 친구의 별점
                 "isMarked": bool(row['isMarked']),
+                "distance": dist,
                 "saversCount": 0,
                 "savers": []
                 
@@ -1210,8 +1249,19 @@ def get_my_places():
                       type: string
                     profileImageUrl:
                       type: string
+              distance:
+                type: number
+                description: "현재 위치와의 거리 (km)"
+                example: 1.25
     """
     user_id = get_jwt_identity()
+
+    # 현재 위치 파라미터 가져오기
+    try:
+        current_lat = request.args.get("lat", type=float)
+        current_lng = request.args.get("lng", type=float)
+    except (TypeError, ValueError):
+        current_lat, current_lng = None, None
 
     friends = Friend.query.filter_by(member_id=user_id, status='friend').all()
     friend_ids = [f.friend_id for f in friends]
@@ -1264,10 +1314,11 @@ def get_my_places():
     rows = cursor.fetchall()
 
     places_dict = {}
-
     for row in rows:
         pid = row['placeId']
         if pid not in places_dict:
+            dist = calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
+
             places_dict[pid] = {
                 "placeId": pid,
                 "gId": row['gid'],
@@ -1280,6 +1331,7 @@ def get_my_places():
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['myRating'],
                 "isMarked": True, # 내 목록이므로 무조건 True
+                "distance": dist,
                 "saversCount": 0,
                 "savers": []
             }
@@ -1300,3 +1352,15 @@ def get_my_places():
             del saver['updated_at']
 
     return jsonify(result_list), 200
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+        if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+            return 0.0
+        R = 6371  # 지구 반지름 (km)
+        d_lat = math.radians(lat2 - lat1)
+        d_lon = math.radians(lon2 - lon1)
+        a = (math.sin(d_lat / 2) ** 2 +
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+             math.sin(d_lon / 2) ** 2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return round(R * c, 2)
