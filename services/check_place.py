@@ -17,6 +17,7 @@ s3 = boto3.client('s3')
 SEARCH_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 SEARCH_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 PLACE_API_KEY = os.getenv("PLACE_API_KEY")
+BUCKET_NAME = os.getenv("BUCKET_NAME")
 
 # 구글 API 엔드포인트
 GOOGLE_TEXTSEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
@@ -79,16 +80,15 @@ def _download_google_photo(shortcut, photo_reference: str) -> Optional[str]:
         r.raise_for_status()
 
         filename = f"{shortcut}_{uuid.uuid4()}.jpg"
-        bucket_name = "spottests"
         s3_key = f"places/{filename}" 
 
         s3.put_object(
-        Bucket=bucket_name,
+        Bucket=BUCKET_NAME,
         Key=s3_key,
         Body=r.content,
         ContentType='image/jpeg' # 브라우저에서 바로 보이도록 설정
     )
-        return f"https://{bucket_name}.s3.ap-northeast-2.amazonaws.com/{s3_key}"
+        return f"https://{BUCKET_NAME}.s3.ap-northeast-2.amazonaws.com/{s3_key}"
     
     except Exception as e:
         print(f"[Photo Download Error] {e}")
@@ -175,6 +175,7 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
             best = data["results"][0]
             
             # 애초에 검색할 때 한번에 
+            place_id = best.get("place_id", "")
             # 주소
             result_data["gid"] = best.get("place_id", "")
             result_data["name"] = best.get("name", name)
@@ -194,10 +195,27 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
             result_data["rating_count"] = int(best.get("user_ratings_total", 0))
 
             # 사진 다운로드 (썸네일만)
-            photo_list = best.get("photos", [])
             saved_paths = []
-            
-            for photo in photo_list:
+            photo_list = []
+            if place_id:
+                details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+                details_params = {
+                    "place_id": place_id,
+                    "fields": "photos", 
+                    "key": PLACE_API_KEY,
+                    "language": "ko"
+                }
+                try:
+                    res = requests.get(details_url, params=details_params, timeout=5)
+                    details_data = res.json()
+                    if details_data.get("status") == "OK":
+                        photo_list = details_data.get("result", {}).get("photos", [])
+                except Exception as e:
+                    logger.error(f"[Google Details Photo Error]: {e}")
+
+            # 사진 다운로드
+            saved_paths = []
+            for photo in photo_list[:4]: # 앞에서부터 4장만 슬라이싱
                 ref = photo.get("photo_reference")
                 if ref:
                     path = _download_google_photo(shortcut, ref)
@@ -344,7 +362,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
                 "rating_avg": google_data.get("rating_avg", 0.0),
                 "rating_count": google_data.get("rating_count", 0),
                 "gid": gid if gid else f"TEMP_{uuid.uuid4().hex[:10]}",
-                "photo": raw_photos[0] if raw_photos else ""    # 썸네일 하나 저장
+                "photo": raw_photos[:5] if raw_photos else ""    # 썸네일 하나 저장
             }
             final_results.append(place_obj)
         time.sleep(0.1)
