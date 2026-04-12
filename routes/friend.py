@@ -143,7 +143,6 @@ def get_friends_list():
     finally:
         cursor.close()
 
-
 # 친구 삭제 (언팔로우)
 @bp.route('/friends/<int:friend_id>', methods=['DELETE'])
 @jwt_required()
@@ -964,3 +963,340 @@ def post_place_like(place_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+    
+# 전체 저장 장소 목록 조회
+@bp.route('/main/home/places/', methods=['GET'])
+@jwt_required()
+def get_all_places():
+    """
+    내 친구들이 저장한 장소 목록 조회
+    ---
+    tags:
+      - Main
+    security:
+      - Bearer: []
+    parameters:
+      - name: sort
+        in: query
+        type: string
+        enum: [latest, star]
+        default: latest
+        description: |
+          정렬 기준:
+          - latest: 친구가 저장한 최신순
+          - star: 친구가 매긴 별점 높은순
+      - name: category
+        in: query
+        type: string
+        enum: [accessory, bar, cafe, cloth, etc, restaurant, dessert, exhibition, experience]
+        description: 카테고리 필터 (미선택 시 전체 조회)
+    responses:
+      200:
+        description: 장소 목록 반환 성공 (savers는 항상 최신 저장 순으로 정렬됨)
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              placeId:
+                type: integer
+                example: 123
+              gId:
+                type: string
+                example: "147258369"
+              name:
+                type: string
+                example: "성수 힙한 카페"
+              address:
+                type: string
+                example: "서울 성동구 성수동..."
+              latitude:
+                type: number
+                example: 37.5412
+              longitude:
+                type: number
+                example: 127.0567
+              list:
+                type: string
+                example: "cafe"
+              photo:
+                type: string
+                example: "https://image_url.com/img.jpg"
+              ratingAvg:
+                type: number
+                example: 4.5
+              myRating:
+                type: number
+                description: "조회된 친구(들) 중 가장 최근에 저장한 친구가 매긴 별점"
+                example: 5.0
+              isMarked:
+                type: boolean
+                description: "로그인한 유저(나)가 이 장소를 저장했는지 여부"
+                example: true
+              saversCount:
+                type: integer
+                description: "이 장소를 저장한 내 친구들의 총 수"
+              savers:
+                type: array
+                description: "이 장소를 저장한 내 친구들 목록 (최신 저장순 정렬)"
+                items:
+                  type: object
+                  properties:
+                    nickname:
+                      type: string
+                      example: "김철수"
+                    profileImageUrl:
+                      type: string
+                      example: "https://profile_url.com/p.jpg"
+      401:
+        description: 인증 실패 (JWT 토큰 누락 또는 만료)
+    """
+    user_id = get_jwt_identity()
+
+    friends = Friend.query.filter_by(member_id=user_id, status='friend').all() # friend_id 검색
+    friend_ids = [f.friend_id for f in friends]
+
+    # 친구가 한 명도 없는 경우 빈 리스트 반환
+    if not friend_ids:
+        return jsonify([]), 200
+    
+    # 정렬 및 필터 파라미터
+    sort_by = request.args.get("sort", "latest")
+    category_filter = request.args.get("category")
+
+    # 유효한 카테고리 목록
+    valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
+
+    db = get_db()
+    cursor = db.cursor()
+
+    # 2. 쿼리 작성
+    # - p.*: 장소 기본 정보
+    # - sp.rating: 친구가 매긴 별점 (myRating)
+    # - k.nickname, k.photo: 친구 정보 (savers용)
+    # - my_sp.id: 내가 저장했는지 여부 확인용 (LEFT JOIN)
+    query = """
+        SELECT
+            p.id AS placeId,
+            p.name,
+            p.gid,
+            p.address,
+            p.latitude,
+            p.longitude,
+            p.list AS category,
+            p.photo,
+            p.rating_avg AS ratingAvg,
+            p.rating_count AS ratingCount,
+            sp.rating AS friendRating,
+            sp.updated_at,
+            k.spot_nickname AS friend_nickname,
+            k.photo AS friend_photo,
+            CASE WHEN my_sp.id IS NOT NULL THEN TRUE ELSE FALSE END AS isMarked
+        FROM saved_place sp
+        JOIN place p ON sp.place_id = p.id
+        JOIN kakao_mem k ON sp.user_id = k.id
+        LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
+        WHERE sp.user_id IN ({})
+    """.format(', '.join(['%s'] * len(friend_ids)))
+    
+    # 내 아이디: JOIN용, 친구 아이디 : WHERE용
+    params = [user_id] + friend_ids
+
+    if category_filter and category_filter in valid_categories:
+        query += " AND p.list = %s"
+        params.append(category_filter)
+
+    # 정렬 방법
+    # 최신순(latest)이 기본, 별점순(star) 선택 가능
+    if sort_by == "star":
+        order_clause = "sp.rating DESC, sp.updated_at DESC"
+    else:
+        order_clause = "sp.updated_at DESC"
+
+    query += f" ORDER BY {order_clause}"
+
+    cursor.execute(query, tuple(params))
+    rows = cursor.fetchall()
+
+    # 데이터 없으면 바로 리턴
+    if not rows:
+        return jsonify([]), 200
+    
+    places_dict = {}
+
+    for row in rows:
+        pid = row['placeId']
+        if pid not in places_dict:
+            places_dict[pid] = {
+                "placeId": pid,
+                "gId": row['gid'],
+                "name": row['name'],
+                "address": row['address'],
+                "latitude": float(row['latitude']) if row['latitude'] else 0.0,
+                "longitude": float(row['longitude']) if row['longitude'] else 0.0,
+                "list": row['category'],
+                "photo": row['photo'] if row['photo'] else "",
+                "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
+                "myRating": row['friendRating'], # 가장 최근 혹은 정렬된 첫 번째 친구의 별점
+                "isMarked": bool(row['isMarked']),
+                "saversCount": 0,
+                "savers": []
+                
+            }
+        
+        # 중복 방지를 위해 savers 추가 (이미 추가된 친구인지 체크 가능)
+        places_dict[pid]["savers"].append({
+            "nickname": row['friend_nickname'],
+            "profileImageUrl": row['friend_photo'] if row['friend_photo'] else "",
+            "updated_at": row['updated_at'] # 정렬용 임시 데이터
+        })
+
+        result_list = list(places_dict.values())
+    
+    for place in result_list:
+        place["savers"].sort(key=lambda x: x['updated_at'], reverse=True)
+        place["saversCount"] = len(place["savers"])
+        
+        for saver in place["savers"]:
+            del saver['updated_at']
+
+    return jsonify(result_list), 200
+
+# 내 저장 장소 목록 조회
+@bp.route('/main/me/places/', methods=['GET'])
+@jwt_required()
+def get_my_places():
+    """
+    내가 저장한 장소 목록 조회
+    ---
+    tags:
+      - Main
+    security:
+      - Bearer: []
+    parameters:
+      - name: sort
+        in: query
+        type: string
+        enum: [latest, star]
+        default: latest
+        description: 내 저장 일시 기준(latest) 또는 내 별점 기준(star)
+      - name: category
+        in: query
+        type: string
+        enum: [accessory, bar, cafe, cloth, etc, restaurant, dessert, exhibition, experience]
+        description: 카테고리 필터
+    responses:
+      200:
+        description: 내 장소 목록 반환 성공
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              placeId:
+                type: integer
+              name:
+                type: string
+              saversCount:
+                type: integer
+                description: "이 장소를 저장한 내 친구들의 총 수"
+              savers:
+                type: array
+                description: "이 장소를 저장한 친구들 목록 (최신순)"
+                items:
+                  type: object
+                  properties:
+                    nickname:
+                      type: string
+                    profileImageUrl:
+                      type: string
+    """
+    user_id = get_jwt_identity()
+
+    friends = Friend.query.filter_by(member_id=user_id, status='friend').all()
+    friend_ids = [f.friend_id for f in friends]
+
+    sort_by = request.args.get("sort", "latest")
+    category_filter = request.args.get("category")
+    valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
+
+    db = get_db()
+    cursor = db.cursor()
+
+    # 2. 쿼리 작성
+    # - 메인: 내가(user_id) 저장한 saved_place (my_sp)
+    # - 조인: 해당 장소를 저장한 친구들의 정보 (f_sp, f_k)
+    query = """
+        SELECT
+            p.id AS placeId,
+            p.name,
+            p.gid,
+            p.address,
+            p.latitude,
+            p.longitude,
+            p.list AS category,
+            p.photo,
+            p.rating_avg AS ratingAvg,
+            my_sp.rating AS myRating,
+            my_sp.updated_at AS my_updated_at,
+            f_k.spot_nickname AS friend_nickname,
+            f_k.photo AS friend_photo,
+            f_sp.updated_at AS friend_updated_at
+        FROM saved_place my_sp
+        JOIN place p ON my_sp.place_id = p.id
+        LEFT JOIN saved_place f_sp ON p.id = f_sp.place_id AND f_sp.user_id IN ({})
+        LEFT JOIN kakao_mem f_k ON f_sp.user_id = f_k.id
+        WHERE my_sp.user_id = %s
+    """.format(', '.join(['%s'] * len(friend_ids)) if friend_ids else "NULL")
+    
+    params = friend_ids + [user_id]
+
+    if category_filter and category_filter in valid_categories:
+        query += " AND p.list = %s"
+        params.append(category_filter)
+
+    if sort_by == "star":
+        query += " ORDER BY my_sp.rating DESC, my_sp.updated_at DESC"
+    else:
+        query += " ORDER BY my_sp.updated_at DESC"
+
+    cursor.execute(query, tuple(params))
+    rows = cursor.fetchall()
+
+    places_dict = {}
+
+    for row in rows:
+        pid = row['placeId']
+        if pid not in places_dict:
+            places_dict[pid] = {
+                "placeId": pid,
+                "gId": row['gid'],
+                "name": row['name'],
+                "address": row['address'],
+                "latitude": float(row['latitude']) if row['latitude'] else 0.0,
+                "longitude": float(row['longitude']) if row['longitude'] else 0.0,
+                "list": row['category'],
+                "photo": row['photo'] if row['photo'] else "",
+                "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
+                "myRating": row['myRating'],
+                "isMarked": True, # 내 목록이므로 무조건 True
+                "saversCount": 0,
+                "savers": []
+            }
+        
+        if row['friend_nickname']:
+            places_dict[pid]["savers"].append({
+                "nickname": row['friend_nickname'],
+                "profileImageUrl": row['friend_photo'] if row['friend_photo'] else "",
+                "updated_at": row['friend_updated_at']
+            })
+
+    result_list = list(places_dict.values())
+    
+    for place in result_list:
+        place["savers"].sort(key=lambda x: x['updated_at'], reverse=True)
+        place["saversCount"] = len(place["savers"])
+        for saver in place["savers"]:
+            del saver['updated_at']
+
+    return jsonify(result_list), 200
