@@ -991,7 +991,7 @@ def post_place_like(place_id):
         return jsonify({'error': str(e)}), 500
     
 # 전체 저장 장소 목록 조회
-@bp.route('/main/home/places/', methods=['GET'])
+@bp.route('/main/home/places', methods=['GET'])
 @jwt_required()
 def get_all_places():
     """
@@ -1202,7 +1202,7 @@ def get_all_places():
     return jsonify(result_list), 200
 
 # 내 저장 장소 목록 조회
-@bp.route('/main/me/places/', methods=['GET'])
+@bp.route('/main/me/places', methods=['GET'])
 @jwt_required()
 def get_my_places():
     """
