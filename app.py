@@ -33,6 +33,7 @@ def create_app():
 
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET")
     app.config["JWT_ALGORITHM"] = os.getenv("JWT_ALGORITHM")
+    aws_ip = os.getenv("AWS_IP")
     jwt = JWTManager(app)
     
     # CORS 설정
@@ -61,7 +62,7 @@ def create_app():
             "version": "1.0.0"
         },
 
-        "host": "13.125.197.83:8001", 
+        "host": f"{aws_ip}:8001", 
         "basePath": "/", 
         "schemes": ["http"],
         "securityDefinitions": {
