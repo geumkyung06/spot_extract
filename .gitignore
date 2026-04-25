@@ -5,36 +5,6 @@ venv/
 ex/
 secrets/
 trash/
-services/temp_images/
-static/uploads/*
-!static/uploads/.gitkeep
-routes/instagram_re.py
-ocr_test.py
-api_history.csv
-oocr.py
-caption_ai.py
-caption_rulebase.py
-instagram copy.py
-user_service.py
-instagram_parser.py
-gemini.py
-gpt.py
-insta.py
-test.py
-ttest.py
-api.py
-downloaded_images
-services/google_place_enricher.py
-ocr_captions
 .vscode
 instance
-tt.py
-services/instagram_image_extracter copy.py
-services/abuse_manager.py
-d.py
-c.py
-t.py
 auth.json
-services/instagram_image_extracter copy.py
-ddd.py
-services/instagram_image_extracter copy 2.py
