@@ -22,7 +22,7 @@ from routes.instagram import bp as instagram_bp
 from routes.places import user_places_bp
 from routes.friend import bp as friend_bp
 from routes.profile import bp as profile_bp
-from routes.main import bp as main_bp
+from routes.home import bp as main_bp
 
 # pymysql 설정
 pymysql.install_as_MySQLdb()

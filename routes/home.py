@@ -363,7 +363,7 @@ def get_all_places():
             "updated_at": row['updated_at'] # 정렬용 임시 데이터
         })
 
-        result_list = list(places_dict.values())
+    result_list = list(places_dict.values())
     
     for place in result_list:
         place["savers"].sort(key=lambda x: x['updated_at'], reverse=True)
@@ -887,7 +887,7 @@ def get_my_pins():
         JOIN place p ON sp.place_id = p.id
         WHERE sp.user_id = %s
     """
-    
+
     params = [user_id]
 
     cursor.execute(query, params)
