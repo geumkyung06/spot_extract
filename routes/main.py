@@ -67,9 +67,7 @@ def get_all_pins():
                 type: number
               list:
                 type: string
-              distance:
-                type: number
-                description: 현재 위치로부터의 거리 (km)
+                description: 카테고리
       401:
         description: 인증 실패
       500:
@@ -157,6 +155,9 @@ def get_all_pins():
                 #"distance": dist if dist else 0.0,
                 "list": row['category']     
             }
+    
+    # places_dict redis 저장(redis 저장 유무 확인 로직 필요) -> 저장 후 1시간동안 유지(이후 삭제)
+    # 10km 이내 장소만 리턴 >> 저장 
 
     result_list = list(places_dict.values())
 
@@ -374,7 +375,7 @@ def get_all_places():
     return jsonify(result_list), 200
 
 
-# FREIND: 친구들의 전체 저장 장소 핀
+# FREIND: 친구의 전체 저장 장소 핀
 @bp.route('/main/home/<int:friend_id>', methods=['GET'])
 @jwt_required()
 def get_friend_pins(friend_id):
@@ -391,16 +392,16 @@ def get_friend_pins(friend_id):
         type: integer
         required: true
         description: 조회할 친구의 ID
-      - name: sort
+      - name: lat
         in: query
-        type: string
-        description: 정렬 기준 (latest, star)
-        default: latest
-      - name: category
+        type: number
+        format: float
+        description: 현재 사용자의 위도
+      - name: lng
         in: query
-        type: string
-        description: 카테고리 필터
-        enum: [accessory, bar, cafe, cloth, etc, restaurant, dessert, exhibition, experience]
+        type: number
+        format: float
+        description: 현재 사용자의 경도
     responses:
       200:
         description: 친구의 핀 목록 조회 성공
@@ -419,12 +420,6 @@ def get_friend_pins(friend_id):
                 type: number
               list:
                 type: string
-              friendRating:
-                type: number
-                description: 친구가 매긴 별점
-              isMarked:
-                type: boolean
-                description: 내가 저장한 장소인지 여부
       401:
         description: 인증 실패
       404:
@@ -470,11 +465,11 @@ def get_friend_pins(friend_id):
         JOIN place p ON sp.place_id = p.id
         JOIN kakao_mem k ON sp.user_id = k.id
         LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
-        WHERE sp.user_id IN ({})
-    """.format(', '.join(['%s'] * len(friend_id)))
+        WHERE sp.user_id = %s
+    """
     
     # 내 아이디: JOIN용, 친구 아이디 : WHERE용
-    params = [user_id] + friend_id
+    params = [user_id, friend_id]
 
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
@@ -812,9 +807,50 @@ def get_friend_comments(friend_id):
 
 
 # ME: 나의 전체 저장 장소 핀
-@bp.route('/main/home/<int:friend_dis>', methods=['GET'])
+@bp.route('/main/me/home', methods=['GET'])
 @jwt_required()
 def get_my_pins():
+    """
+    내가 저장한 장소(핀) 전체 목록 조회
+    ---
+    tags:
+      - Main
+    security:
+      - Bearer: []
+    parameters:
+      - name: lat
+        in: query
+        type: number
+        format: float
+        description: 현재 사용자의 위도 (거리 계산용)
+      - name: lng
+        in: query
+        type: number
+        format: float
+        description: 현재 사용자의 경도 (거리 계산용)
+    responses:
+      200:
+        description: 내가 저장한 장소 목록 조회 성공
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              placeId:
+                type: integer
+              name:
+                type: string
+              latitude:
+                type: number
+              longitude:
+                type: number
+              list:
+                type: string
+      401:
+        description: 인증 실패
+      500:
+        description: 서버 오류
+    """
     user_id = get_jwt_identity()
 
     # 현재 위치 파라미터 가져오기
@@ -846,20 +882,15 @@ def get_my_pins():
             p.rating_count AS ratingCount,
             sp.rating AS friendRating,
             sp.updated_at,
-            k.spot_nickname AS friend_nickname,
-            k.photo AS friend_photo,
-            CASE WHEN my_sp.id IS NOT NULL THEN TRUE ELSE FALSE END AS isMarked
+            TRUE AS isMarked
         FROM saved_place sp
         JOIN place p ON sp.place_id = p.id
-        JOIN kakao_mem k ON sp.user_id = k.id
-        LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
-        WHERE sp.user_id IN ({})
+        WHERE sp.user_id = %s
     """
     
-    # 내 아이디: JOIN용, 친구 아이디 : WHERE용
-    params = user_id
+    params = [user_id]
 
-    cursor.execute(query, tuple(params))
+    cursor.execute(query, params)
     rows = cursor.fetchall()
 
     # 데이터 없으면 바로 리턴
@@ -870,7 +901,7 @@ def get_my_pins():
     for row in rows:
         pid = row['placeId']
         if pid not in places_dict:
-            dist = calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
+            #dist = calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
 
             places_dict[pid] = {
                 "placeId": pid,
@@ -880,7 +911,7 @@ def get_my_pins():
                 "list": row['category']     
             }
 
-        result_list = list(places_dict.values())
+    result_list = list(places_dict.values())
 
     return jsonify(result_list), 200
 
