@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 
 # EC2 내부에 띄운 로컬 Redis에 접속
 REDIS_HOST = os.getenv("REDIS_HOST")
-redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
+DB_NUMBER = os.getenv("DB_NUMBER")
+redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=DB_NUMBER, decode_responses=True)
 
 def check_abuse_and_rate_limit(user_id):
     """10분 차단 여부 및 분당 요청 횟수 체크"""
