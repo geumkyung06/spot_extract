@@ -49,6 +49,11 @@ def get_all_pins():
         type: number
         format: float
         description: 현재 사용자의 경도
+      - name: distance
+        in: query
+        type: number
+        format: float
+        description: 장소가 표시될 반경
     responses:
       200:
         description: 친구들의 핀 목록 조회 성공
@@ -68,6 +73,9 @@ def get_all_pins():
               list:
                 type: string
                 description: 카테고리
+              distance:
+                type: number
+                description: 현재 위치로부터 떨어진 거리
       401:
         description: 인증 실패
       500:
@@ -75,12 +83,16 @@ def get_all_pins():
     """
     user_id = get_jwt_identity()
 
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+
     # 현재 위치 파라미터 가져오기
     try:
         current_lat = request.args.get("lat", type=float)
         current_lng = request.args.get("lng", type=float)
+        current_distance = request.args.get("distance", type=float)
     except (TypeError, ValueError):
-        current_lat, current_lng = None, None
+        current_lat, current_lng, current_distance = None, None, None
 
     friends = Friend.query.filter_by(member_id=user_id, status='friend').all() # friend_id 검색
     friend_ids = [f.friend_id for f in friends]
@@ -103,7 +115,7 @@ def get_all_pins():
     # - sp.rating: 친구가 매긴 별점 (myRating)
     # - k.nickname, k.photo: 친구 정보 (savers용)
     # - my_sp.id: 내가 저장했는지 여부 확인용 (LEFT JOIN)
-    query = """
+    select_clause = """
         SELECT
             p.id AS placeId,
             p.name,
@@ -120,20 +132,36 @@ def get_all_pins():
             k.spot_nickname AS friend_nickname,
             k.photo AS friend_photo,
             CASE WHEN my_sp.id IS NOT NULL THEN TRUE ELSE FALSE END AS isMarked
-        FROM saved_place sp
-        JOIN place p ON sp.place_id = p.id
-        JOIN kakao_mem k ON sp.user_id = k.id
-        LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
-        WHERE sp.user_id IN ({})
-    """.format(', '.join(['%s'] * len(friend_ids)))
+        """
     
     # 내 아이디: JOIN용, 친구 아이디 : WHERE용
-    params = [user_id] + friend_ids
+    params = []
 
+    calculate_distance(current_lat, current_lng, current_distance, params, select_clause)
+
+    from_where_clause = """
+    FROM saved_place sp
+    JOIN place p ON sp.place_id = p.id
+    JOIN kakao_mem k ON sp.user_id = k.id
+    LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
+    WHERE sp.user_id IN ({})
+    """.format(', '.join(['%s'] * len(friend_ids)))
+    
+    params.append(user_id)
+    params.extend(friend_ids)
+
+    query = select_clause + from_where_clause
+
+    # 카테고리 쿼리 추가
     if category_filter and category_filter in valid_categories:
-        query += " AND p.list = %s"
-        params.append(category_filter)
-
+      query += " AND p.list = %s"
+      params.append(category_filter)
+    
+    # 반경 거리 추가
+    if current_lat is not None and current_lng is not None and current_distance is not None:
+      query += " HAVING distance <= %s"
+      params.append(current_distance)
+    
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
 
@@ -145,19 +173,14 @@ def get_all_pins():
     for row in rows:
         pid = row['placeId']
         if pid not in places_dict:
-            #dist = calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
-
             places_dict[pid] = {
                 "placeId": pid,
                 "name": row['name'],
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
-                #"distance": dist if dist else 0.0,
+                "distance": round(row['distance'], 2) if 'distance' in row else 0.0, # 계산된 거리 포함
                 "list": row['category']     
             }
-    
-    # places_dict redis 저장(redis 저장 유무 확인 로직 필요) -> 저장 후 1시간동안 유지(이후 삭제)
-    # 10km 이내 장소만 리턴 >> 저장 
 
     result_list = list(places_dict.values())
 
@@ -402,6 +425,11 @@ def get_friend_pins(friend_id):
         type: number
         format: float
         description: 현재 사용자의 경도
+      - name: distance
+        in: query
+        type: number
+        format: float
+        description: 장소가 표시될 반경
     responses:
       200:
         description: 친구의 핀 목록 조회 성공
@@ -420,6 +448,9 @@ def get_friend_pins(friend_id):
                 type: number
               list:
                 type: string
+              distance:
+                type: number
+                description: 현재 위치로부터 떨어진 거리
       401:
         description: 인증 실패
       404:
@@ -428,23 +459,31 @@ def get_friend_pins(friend_id):
         description: 서버 오류
     """
     user_id = get_jwt_identity()
+    friend_id = request.args.get("friend_id")
 
     # 현재 위치 파라미터 가져오기
     try:
         current_lat = request.args.get("lat", type=float)
         current_lng = request.args.get("lng", type=float)
+        current_distance = request.args.get("distance", type=float)
     except (TypeError, ValueError):
-        current_lat, current_lng = None, None
+        current_lat, current_lng, current_distance = None, None, None
 
     db = get_db()
     cursor = db.cursor()
+
+    # 정렬 및 필터 파라미터
+    category_filter = request.args.get("category")
+
+    # 유효한 카테고리 목록
+    valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     # 2. 쿼리 작성
     # - p.*: 장소 기본 정보
     # - sp.rating: 친구가 매긴 별점 (myRating)
     # - k.nickname, k.photo: 친구 정보 (savers용)
     # - my_sp.id: 내가 저장했는지 여부 확인용 (LEFT JOIN)
-    query = """
+    select_clause = """
         SELECT
             p.id AS placeId,
             p.name,
@@ -461,16 +500,33 @@ def get_friend_pins(friend_id):
             k.spot_nickname AS friend_nickname,
             k.photo AS friend_photo,
             CASE WHEN my_sp.id IS NOT NULL THEN TRUE ELSE FALSE END AS isMarked
-        FROM saved_place sp
-        JOIN place p ON sp.place_id = p.id
-        JOIN kakao_mem k ON sp.user_id = k.id
-        LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
-        WHERE sp.user_id = %s
-    """
+        """
     
     # 내 아이디: JOIN용, 친구 아이디 : WHERE용
-    params = [user_id, friend_id]
+    params = []
 
+    calculate_distance(current_lat, current_lng, current_distance, params, select_clause)
+
+    # 특정 친구의 장소들만 확인
+    from_where_clause = """
+    FROM saved_place sp
+    JOIN place p ON sp.place_id = p.id
+    JOIN friend f ON f.member_id = %s AND f.friend_id = sp.user_id AND f.status = 'friend'
+    JOIN kakao_mem k ON sp.user_id = k.id
+    LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
+    WHERE sp.user_id IN ({})
+    """.format(', '.join(['%s'] * len(friend_id)))
+    
+    params.append(user_id)
+    params.extend(friend_id)
+
+    query = select_clause + from_where_clause
+
+    # 카테고리 쿼리 추가
+    if category_filter and category_filter in valid_categories:
+      query += " AND p.list = %s"
+      params.append(category_filter)
+    
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
 
@@ -482,14 +538,13 @@ def get_friend_pins(friend_id):
     for row in rows:
         pid = row['placeId']
         if pid not in places_dict:
-            #dist = calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
-
             places_dict[pid] = {
                 "placeId": pid,
                 "name": row['name'],
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
-                "list": row['category']     
+                "distance": round(row['distance'], 2) if 'distance' in row else 0.0, # 계산된 거리 포함
+                "list": row['category']    
             }
 
     result_list = list(places_dict.values())
@@ -828,6 +883,11 @@ def get_my_pins():
         type: number
         format: float
         description: 현재 사용자의 경도 (거리 계산용)
+      - name: distance
+        in: query
+        type: number
+        format: float
+        description: 장소가 표시될 반경
     responses:
       200:
         description: 내가 저장한 장소 목록 조회 성공
@@ -846,6 +906,8 @@ def get_my_pins():
                 type: number
               list:
                 type: string
+              distance:
+                type: number
       401:
         description: 인증 실패
       500:
@@ -853,22 +915,32 @@ def get_my_pins():
     """
     user_id = get_jwt_identity()
 
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+
     # 현재 위치 파라미터 가져오기
     try:
         current_lat = request.args.get("lat", type=float)
         current_lng = request.args.get("lng", type=float)
+        current_distance = request.args.get("distance", type=float)
     except (TypeError, ValueError):
-        current_lat, current_lng = None, None
+        current_lat, current_lng, current_distance = None, None, None
 
     db = get_db()
     cursor = db.cursor()
+
+    # 정렬 및 필터 파라미터
+    category_filter = request.args.get("category")
+
+    # 유효한 카테고리 목록
+    valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     # 2. 쿼리 작성
     # - p.*: 장소 기본 정보
     # - sp.rating: 친구가 매긴 별점 (myRating)
     # - k.nickname, k.photo: 친구 정보 (savers용)
     # - my_sp.id: 내가 저장했는지 여부 확인용 (LEFT JOIN)
-    query = """
+    select_clause = """
         SELECT
             p.id AS placeId,
             p.name,
@@ -882,15 +954,34 @@ def get_my_pins():
             p.rating_count AS ratingCount,
             sp.rating AS friendRating,
             sp.updated_at,
-            TRUE AS isMarked
-        FROM saved_place sp
-        JOIN place p ON sp.place_id = p.id
-        WHERE sp.user_id = %s
-    """
+            k.spot_nickname AS friend_nickname,
+            k.photo AS friend_photo,
+            CASE WHEN my_sp.id IS NOT NULL THEN TRUE ELSE FALSE END AS isMarked
+        """
+  
+    params = []
 
-    params = [user_id]
+    calculate_distance(current_lat, current_lng, current_distance, params, select_clause)
 
-    cursor.execute(query, params)
+    # 특정 친구의 장소들만 확인
+    from_where_clause = """
+    FROM saved_place sp
+    JOIN place p ON sp.place_id = p.id
+    JOIN kakao_mem k ON sp.user_id = k.id
+    LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s
+    WHERE sp.user_id IN ({})
+    """.format(', '.join(['%s'] * len(user_id)))
+    
+    params.append(user_id)
+
+    query = select_clause + from_where_clause
+
+    # 카테고리 쿼리 추가
+    if category_filter and category_filter in valid_categories:
+      query += " AND p.list = %s"
+      params.append(category_filter)
+    
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
 
     # 데이터 없으면 바로 리턴
@@ -901,16 +992,15 @@ def get_my_pins():
     for row in rows:
         pid = row['placeId']
         if pid not in places_dict:
-            #dist = calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
-
             places_dict[pid] = {
                 "placeId": pid,
                 "name": row['name'],
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
-                "list": row['category']     
+                "distance": round(row['distance'], 2) if 'distance' in row else 0.0, # 계산된 거리 포함
+                "list": row['category']    
             }
-
+    
     result_list = list(places_dict.values())
 
     return jsonify(result_list), 200
@@ -1146,15 +1236,19 @@ def post_place_like(place_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-def calculate_distance(lat1, lon1, lat2, lon2):
-
-        if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
-            return 0.0
-        R = 6371  # 지구 반지름 (km)
-        d_lat = math.radians(lat2 - lat1)
-        d_lon = math.radians(lon2 - lon1)
-        a = (math.sin(d_lat / 2) ** 2 +
-             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-             math.sin(d_lon / 2) ** 2)
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return round(R * c, 2)
+# sql에서 반경 확인
+def calculate_distance(current_lat, current_lng, current_distance, params, select_clause):
+  if current_lat is not None and current_lng is not None and current_distance is not None:
+    # 6371: 지구의 반지름 (km)
+    select_clause += """,
+        (6371 * acos(
+            cos(radians(%s)) * cos(radians(p.latitude)) *
+            cos(radians(p.longitude) - radians(%s)) +
+            sin(radians(%s)) * sin(radians(p.latitude))
+        )) AS distance
+    """
+    # 쿼리에 들어갈 파라미터 (현재 위도, 현재 경도, 현재 위도)
+    params.extend([current_lat, current_lng, current_lat])
+  else:
+      # 위치 정보가 없으면 거리는 0으로 처리
+      select_clause += ", 0 AS distance "
