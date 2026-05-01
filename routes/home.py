@@ -110,7 +110,7 @@ def get_all_pins():
     valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor)
 
     # 2. 쿼리 작성
     # - p.*: 장소 기본 정보
@@ -321,7 +321,7 @@ def get_all_places():
     valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor)
 
     # 2. 쿼리 작성
     # - p.*: 장소 기본 정보
@@ -498,7 +498,7 @@ def get_friend_pins(friend_id):
     valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor)
 
     # 2. 쿼리 작성
     # - p.*: 장소 기본 정보
@@ -689,7 +689,7 @@ def get_friend_places(friend_id):
     valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor)
 
     # 2. 쿼리 작성
     # - p.*: 장소 기본 정보
@@ -841,7 +841,7 @@ def get_friend_comments(friend_id):
     sort = request.args.get('sort', 'latest') 
 
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor)
 
     order_by = "c.id DESC" 
 
@@ -970,7 +970,7 @@ def get_my_pins():
         current_lat, current_lng, current_distance = None, None, None
 
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor)
 
     # 정렬 및 필터 파라미터
     category_filter = request.args.get("category")
@@ -1137,7 +1137,7 @@ def get_my_places():
     valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(pymysql.cursors.DictCursor)
 
     # 2. 쿼리 작성
     # - 메인: 내가(user_id) 저장한 saved_place (my_sp)
