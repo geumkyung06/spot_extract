@@ -1029,7 +1029,7 @@ def get_my_pins():
 
     query = select_clause + from_where_clause
 
-    # 카테고리 쿼리 추가
+    # 카테고리 쿼리 추가 
     if category_filter and category_filter in valid_categories:
       query += " AND p.list = %s"
       params.append(category_filter)
