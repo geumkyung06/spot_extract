@@ -566,9 +566,9 @@ def get_friend_pins(friend_id):
         query += " HAVING distance <= %s"
         params.append(current_distance)
 
-    logger.debug("쿼리 내 %s 개수:", query.count('%s'))
-    logger.debug("params 리스트 개수:", len(params))
-    logger.debug("params 구성 데이터:", params)
+    logger.debug(f"쿼리 내 %s 개수: {query.count('%s')}")
+    logger.debug(f"params 리스트 개수: {len(params)}")
+    logger.debug(f"params 구성 데이터: {params}")
     
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
@@ -1038,9 +1038,9 @@ def get_my_pins():
         query += " HAVING distance <= %s"
         params.append(current_distance)
 
-    logger.debug("쿼리 내 %s 개수:", query.count('%s'))
-    logger.debug("params 리스트 개수:", len(params))
-    logger.debug("params 구성 데이터:", params)
+    logger.debug(f"쿼리 내 %s 개수: {query.count('%s')}")
+    logger.debug(f"params 리스트 개수: {len(params)}")
+    logger.debug(f"params 구성 데이터: {params}")
     
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
@@ -1068,6 +1068,7 @@ def get_my_pins():
 
     
 # ME: 내 저장 장소 목록 조회
+# /main/me/places?lat=00.00&lng=00.00&category=cafe&sort=distance
 @bp.route('/main/me/places', methods=['GET'])
 @jwt_required()
 def get_my_places():
@@ -1079,17 +1080,16 @@ def get_my_places():
     security:
       - Bearer: []
     parameters:
-      - name: sort
+      - name: lat
         in: query
-        type: string
-        enum: [latest, star]
-        default: latest
-        description: 내 저장 일시 기준(latest) 또는 내 별점 기준(star)
-      - name: category
+        type: number
+        format: float
+        description: 현재 위치 위도 (입력 시 거리 계산)
+      - name: lng
         in: query
-        type: string
-        enum: [accessory, bar, cafe, cloth, etc, restaurant, dessert, exhibition, experience]
-        description: 카테고리 필터
+        type: number
+        format: float
+        description: 현재 위치 경도 (입력 시 거리 계산)
     responses:
       200:
         description: 내 장소 목록 반환 성공
@@ -1100,8 +1100,46 @@ def get_my_places():
             properties:
               placeId:
                 type: integer
+                description: "장소 PK"
+              gId:
+                type: string
+                description: "장소의 고유 식별자 (Google Place ID)"
               name:
                 type: string
+                description: "장소명"
+              address:
+                type: string
+                description: "장소 주소"
+              latitude:
+                type: number
+                format: float
+                description: "장소 위도"
+              longitude:
+                type: number
+                format: float
+                description: "장소 경도"
+              list:
+                type: string
+                description: "장소 카테고리"
+              photo:
+                type: string
+                description: "장소 사진 URL"
+              ratingAvg:
+                type: number
+                format: float
+                description: "해당 장소의 전체 평균 별점"
+              myRating:
+                type: number
+                format: float
+                description: "내가 준 별점"
+              isMarked:
+                type: boolean
+                description: "내 저장 여부 (내가 저장한 목록이므로 항상 true)"
+              distance:
+                type: number
+                format: float
+                description: "현재 위치와의 거리 (km, 위치 정보 없을 시 0.0)"
+                example: 1.25
               saversCount:
                 type: integer
                 description: "이 장소를 저장한 내 친구들의 총 수"
@@ -1113,12 +1151,10 @@ def get_my_places():
                   properties:
                     nickname:
                       type: string
+                      description: "친구 닉네임"
                     profileImageUrl:
                       type: string
-              distance:
-                type: number
-                description: "현재 위치와의 거리 (km)"
-                example: 1.25
+                      description: "친구 프로필 이미지 URL"
     """
     user_id = get_jwt_identity()
 
@@ -1131,10 +1167,9 @@ def get_my_places():
 
     friends = Friend.query.filter_by(member_id=user_id, status='friend').all()
     friend_ids = [f.friend_id for f in friends]
+    logger.debug(f"내 친구 목록: {friend_ids}")
 
-    sort_by = request.args.get("sort", "latest")
-    category_filter = request.args.get("category")
-    valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
+    #valid_categories = ["accessory", "bar", "cafe", "cloth", "etc", "restaurant", "dessert", "exhibition", "experience"]
 
     db = get_db()
     cursor = db.cursor(pymysql.cursors.DictCursor)
@@ -1142,7 +1177,7 @@ def get_my_places():
     # 2. 쿼리 작성
     # - 메인: 내가(user_id) 저장한 saved_place (my_sp)
     # - 조인: 해당 장소를 저장한 친구들의 정보 (f_sp, f_k)
-    query = """
+    select_clause = """
         SELECT
             p.id AS placeId,
             p.name,
@@ -1158,24 +1193,60 @@ def get_my_places():
             f_k.spot_nickname AS friend_nickname,
             f_k.photo AS friend_photo,
             f_sp.updated_at AS friend_updated_at
-        FROM saved_place my_sp
-        JOIN place p ON my_sp.place_id = p.id
-        LEFT JOIN saved_place f_sp ON p.id = f_sp.place_id AND f_sp.user_id IN ({})
-        LEFT JOIN kakao_mem f_k ON f_sp.user_id = f_k.id
-        WHERE my_sp.user_id = %s
-    """.format(', '.join(['%s'] * len(friend_ids)) if friend_ids else "NULL")
-    
-    params = friend_ids + [user_id]
+    """
 
-    if category_filter and category_filter in valid_categories:
-        query += " AND p.list = %s"
-        params.append(category_filter)
+    params = [] # 파라미터 담을 리스트 초기화
 
-    if sort_by == "star":
-        query += " ORDER BY my_sp.rating DESC, my_sp.updated_at DESC"
+    if current_lat is not None and current_lng is not None:
+        # 6371: 지구의 반지름 (km)
+        select_clause += """,
+            (6371 * acos(
+                cos(radians(%s)) * cos(radians(p.latitude)) *
+                cos(radians(p.longitude) - radians(%s)) +
+                sin(radians(%s)) * sin(radians(p.latitude))
+            )) AS distance
+        """
+        params.extend([current_lat, current_lng, current_lat])
     else:
-        query += " ORDER BY my_sp.updated_at DESC"
+        # 위치 정보가 없으면 거리는 0으로 처리
+        select_clause += ", 0 AS distance "
 
+    # 2. FROM 및 WHERE 절 구성
+    if friend_ids:
+        placeholders = ', '.join(['%s'] * len(friend_ids))
+        from_where_clause = f"""
+            FROM saved_place my_sp
+            JOIN place p ON my_sp.place_id = p.id
+            LEFT JOIN saved_place f_sp ON p.id = f_sp.place_id AND f_sp.user_id IN ({placeholders})
+            LEFT JOIN kakao_mem f_k ON f_sp.user_id = f_k.id
+            WHERE my_sp.user_id = %s
+        """
+        params.extend(friend_ids)
+        params.append(user_id)
+    else:
+        from_where_clause = """
+            FROM saved_place my_sp
+            JOIN place p ON my_sp.place_id = p.id
+            LEFT JOIN saved_place f_sp ON p.id = f_sp.place_id AND 1=0
+            LEFT JOIN kakao_mem f_k ON f_sp.user_id = f_k.id AND 1=0
+            WHERE my_sp.user_id = %s
+        """
+        params.append(user_id)
+
+    '''additional_where = ""
+    if category_filter and category_filter in valid_categories:
+        additional_where = " AND p.list = %s"
+        params.append(category_filter)'''
+
+    order_clause = " ORDER BY my_sp.updated_at DESC"
+    '''if sort_by == "distance":
+        order_clause = " ORDER BY distance DESC, my_sp.updated_at DESC"
+    else:
+        order_clause = " ORDER BY my_sp.updated_at DESC"'''
+
+    # 4. 최종 쿼리 병합
+    query = select_clause + from_where_clause + order_clause
+    
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
 
@@ -1183,7 +1254,8 @@ def get_my_places():
     for row in rows:
         pid = row['placeId']
         if pid not in places_dict:
-            calculate_distance(current_lat, current_lng, row['latitude'], row['longitude'])
+            raw_distance = row.get('distance')
+            distance = round(float(raw_distance), 2) if raw_distance is not None else 0.0
 
             places_dict[pid] = {
                 "placeId": pid,
@@ -1197,11 +1269,12 @@ def get_my_places():
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['myRating'],
                 "isMarked": True, # 내 목록이므로 무조건 True
-                "distance": round(row['distance'], 2) if 'distance' in row else 0.0, # 계산된 거리 포함
+                "distance": distance, 
                 "saversCount": 0,
                 "savers": []
             }
-        
+            logger.debug(f"장소 정보: {places_dict[pid]}")
+
         if row['friend_nickname']:
             places_dict[pid]["savers"].append({
                 "nickname": row['friend_nickname'],
@@ -1210,13 +1283,14 @@ def get_my_places():
             })
 
     result_list = list(places_dict.values())
-    
+    logger.debug(f"최종 장소 정보: {result_list}")
     for place in result_list:
         place["savers"].sort(key=lambda x: x['updated_at'], reverse=True)
         place["saversCount"] = len(place["savers"])
         for saver in place["savers"]:
             del saver['updated_at']
 
+    logger.debug(f"savers 관련 업데이트한 최종 장소 정보: {result_list}")
     return jsonify(result_list), 200
 
 # ME: 내 코멘트 조회
