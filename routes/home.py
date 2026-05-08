@@ -299,7 +299,7 @@ def get_all_places():
         description: 인증 실패 (JWT 토큰 누락 또는 만료)
     """
     user_id = get_jwt_identity()
-
+    logger.debug(f"👉 /main/home/places 호출됨! 요청한 유저 ID: {user_id}")
   # 현재 위치 파라미터 가져오기
     try:
         current_lat = request.args.get("lat", type=float)
@@ -309,9 +309,11 @@ def get_all_places():
 
     friends = Friend.query.filter_by(member_id=user_id, status='friend').all() # friend_id 검색
     friend_ids = [f.friend_id for f in friends]
+    logger.debug(f"👉 내 친구 ID 목록: {friend_ids}")
 
     # 친구가 한 명도 없는 경우 빈 리스트 반환
     if not friend_ids:
+        logger.debug("👉 친구가 없어서 조기 종료됨!")
         return jsonify([]), 200
     
     # 정렬 및 필터 파라미터
@@ -393,9 +395,10 @@ def get_all_places():
 
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
-
+    logger.debug(f"👉 쿼리 실행 완료! 조회된 장소 개수(rows): {len(rows)}")
     # 데이터 없으면 바로 리턴
     if not rows:
+        logger.debug("👉 친구의 장소가 하나도 없어서 조기 종료됨!")
         return jsonify([]), 200
     
     places_dict = {}
