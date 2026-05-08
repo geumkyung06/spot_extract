@@ -6,7 +6,7 @@ import math
 from flask import Blueprint, jsonify, request, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from services.my_logger import get_my_logger
-from app import get_full_photo_url
+from services.utils import get_full_photo_url
 
 from models import db, PlaceLike, Place, Friend, KakaoMem
 

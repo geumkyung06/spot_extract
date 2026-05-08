@@ -14,7 +14,7 @@ from services.check_place import process_places
 from services.browser import browser_service
 from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad
 from services.my_logger import get_my_logger
-from app import get_full_photo_url
+from services.utils import get_full_photo_url
 
 
 # models 파일에서 정의한 클래스들 임포트
