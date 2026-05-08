@@ -10,6 +10,7 @@ import boto3
 
 from models import db, Place, InstaUrl, UrlPlace
 from services.my_logger import get_my_logger
+from utils import get_full_photo_url
 
 logger = get_my_logger(__name__)
 s3 = boto3.client('s3')
@@ -307,7 +308,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
                     "rating_avg": place.rating_avg,
                     "rating_count": place.rating_count,
                     "gid": place.gid,
-                    "photo": place.photo    
+                    "photo": get_full_photo_url(place.photo)
                     }   
                     final_results.append(place_data)
                     continue
@@ -332,7 +333,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
                 "rating_avg": place.rating_avg,
                 "rating_count": place.rating_count,
                 "gid": place.gid,
-                "photo": place.photo    
+                "photo": get_full_photo_url(place.photo)
                 }   
                 final_results.append(place_data)
                 continue            
@@ -364,7 +365,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
                 "rating_avg": google_data.get("rating_avg", 0.0),
                 "rating_count": google_data.get("rating_count", 0),
                 "gid": gid if gid else f"TEMP_{uuid.uuid4().hex[:10]}",
-                "photo": raw_photos[:5] if raw_photos else ""    # 4장
+                "photo": raw_photos if raw_photos else ""    # 4장
             }
             final_results.append(place_obj)
         time.sleep(0.1)
