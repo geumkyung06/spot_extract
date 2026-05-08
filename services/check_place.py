@@ -88,7 +88,7 @@ def _download_google_photo(shortcut, photo_reference: str) -> Optional[str]:
         Body=r.content,
         ContentType='image/jpeg' # 브라우저에서 바로 보이도록 설정
     )
-        return f"https://{BUCKET_NAME}.s3.ap-northeast-2.amazonaws.com/{s3_key}"
+        return f"/{s3_key}" # f"https://{BUCKET_NAME}.s3.ap-northeast-2.amazonaws.com/{s3_key}"
     
     except Exception as e:
         print(f"[Photo Download Error] {e}")
@@ -111,6 +111,8 @@ def make_queries(name: str, address: str) -> list:
     
     return f"{name} {short_region}"
 
+#road address: 도로명 주소
+# address: 지번 주소(동 가능)
 def _search_naver_local(list_query: list) -> dict: # 쿼리 ex) 서울(성수) 진사천훠궈 query[0]으로 [위치+가게명, 주소] 로 변경 필요
     """네이버 지역 검색 (한국어 상호명/주소 검증용)"""
     if not SEARCH_CLIENT_ID or not SEARCH_CLIENT_SECRET: return {}
@@ -222,7 +224,7 @@ def _fetch_google_details(name: str, address: str, shortcut) -> dict:
                     if path:
                         saved_paths.append(path)
             
-            result_data["photos"] = saved_paths
+            result_data["photos"] = ",".join(saved_paths) # 4장 경로. 나중에 photo.split(",")
             
     except Exception as e:
         logger.error(f"❌ [Google Details Error 상세]: {type(e).__name__} - {e}")
@@ -362,7 +364,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
                 "rating_avg": google_data.get("rating_avg", 0.0),
                 "rating_count": google_data.get("rating_count", 0),
                 "gid": gid if gid else f"TEMP_{uuid.uuid4().hex[:10]}",
-                "photo": raw_photos[:5] if raw_photos else ""    # 썸네일 하나 저장
+                "photo": raw_photos[:5] if raw_photos else ""    # 4장
             }
             final_results.append(place_obj)
         time.sleep(0.1)
