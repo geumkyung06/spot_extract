@@ -14,6 +14,7 @@ from services.check_place import process_places
 from services.browser import browser_service
 from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad
 from services.my_logger import get_my_logger
+from app import get_full_photo_url
 
 
 # models 파일에서 정의한 클래스들 임포트
@@ -311,9 +312,10 @@ def check_db_have_url(url=""):
             "category": place.category, 
             "rating_avg": place.rating_avg,
             "rating_count": place.rating_count,
-            "photo": place.photo    
+            "photo": get_full_photo_url(place.photo)
             }   
             post_places.append(place_data)  
+        logger.debug(f"장소 데이터: {place_data}")
     return target_url.id, texts,post_places # 검색 결과 없으면 빈 리스트 반환   
     
 async def check_caption_place(caption=""):
