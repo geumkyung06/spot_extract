@@ -85,7 +85,6 @@ def get_all_pins():
         description: 서버 오류
     """
     user_id = get_jwt_identity()
-    logger.debug(f"👉 현재 user_id 값: {user_id}, 타입: {type(user_id)}")
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
 
@@ -98,15 +97,16 @@ def get_all_pins():
         current_lat, current_lng, current_distance = None, None, None
 
     all_relations = Friend.query.filter_by(member_id=int(user_id)).all()
-    logger.debug(f"👉 상태 무관 내 전체 친구 데이터 갯수: {len(all_relations)}")
+    logger.debug(f"상태 무관 내 전체 친구 데이터 갯수: {len(all_relations)}")
 
     friends = Friend.query.filter_by(member_id=int(user_id), status='friend').all() # friend_id 검색
     friend_ids = [f.friend_id for f in friends]
+    logger.debug(f"내 전체 친구 데이터 갯수: {len(friends)}, 친구 아이디: {friend_ids}")
 
     # 친구가 한 명도 없는 경우 빈 리스트 반환
     if not friend_ids:
         logger.debug("친구가 없음")
-        return jsonify([]), 200
+        return jsonify([{'message':'친구 없음'}]), 200
     
     # 정렬 및 필터 파라미터
     category_filter = request.args.get("category")
@@ -204,8 +204,7 @@ def get_all_pins():
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
                 "distance": round(row['distance'], 2) if 'distance' in row else 0.0, # 계산된 거리 포함
                 "list": row['category']     
-            }
-            logger.debug(f"저장 장소 [{pid}]: {places_dict}")   
+            } 
 
     result_list = list(places_dict.values())
 
@@ -303,7 +302,6 @@ def get_all_places():
         description: 인증 실패 (JWT 토큰 누락 또는 만료)
     """
     user_id = get_jwt_identity()
-    logger.debug(f"👉 /main/home/places 호출됨! 요청한 유저 ID: {user_id}")
   # 현재 위치 파라미터 가져오기
     try:
         current_lat = request.args.get("lat", type=float)
@@ -317,8 +315,8 @@ def get_all_places():
 
     # 친구가 한 명도 없는 경우 빈 리스트 반환
     if not friend_ids:
-        logger.debug("👉 친구가 없어서 조기 종료됨!")
-        return jsonify([]), 200
+        logger.debug("친구가 없음")
+        return jsonify([{'message':'친구 없음'}]), 200
     
     # 정렬 및 필터 파라미터
     '''sort_by = request.args.get("sort", "latest")
