@@ -1214,12 +1214,9 @@ def get_my_places():
             p.list AS category,
             p.photo,
             p.rating_avg AS ratingAvg,
-            my_sp.rating AS myRating,
-            my_sp.updated_at AS my_updated_at,
-            f_k.spot_nickname AS friend_nickname,
-            f_k.photo AS friend_photo,
-            f_sp.updated_at AS friend_updated_at
-    """
+            p.rating_count AS ratingCount,
+            sp.updated_at
+        """
 
     params = [] # 파라미터 담을 리스트 초기화
 
