@@ -85,7 +85,7 @@ def get_all_pins():
         description: 서버 오류
     """
     user_id = get_jwt_identity()
-
+    logger.debug(f"👉 현재 user_id 값: {user_id}, 타입: {type(user_id)}")
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
 
@@ -97,11 +97,15 @@ def get_all_pins():
     except (TypeError, ValueError):
         current_lat, current_lng, current_distance = None, None, None
 
-    friends = Friend.query.filter_by(member_id=user_id, status='friend').all() # friend_id 검색
+    all_relations = Friend.query.filter_by(member_id=int(user_id)).all()
+    logger.debug(f"👉 상태 무관 내 전체 친구 데이터 갯수: {len(all_relations)}")
+
+    friends = Friend.query.filter_by(member_id=int(user_id), status='friend').all() # friend_id 검색
     friend_ids = [f.friend_id for f in friends]
 
     # 친구가 한 명도 없는 경우 빈 리스트 반환
     if not friend_ids:
+        logger.debug("친구가 없음")
         return jsonify([]), 200
     
     # 정렬 및 필터 파라미터
@@ -307,7 +311,7 @@ def get_all_places():
     except (TypeError, ValueError):
         current_lat, current_lng = None, None
 
-    friends = Friend.query.filter_by(member_id=user_id, status='friend').all() # friend_id 검색
+    friends = Friend.query.filter_by(member_id=int(user_id), status='friend').all() # friend_id 검색
     friend_ids = [f.friend_id for f in friends]
     logger.debug(f"👉 내 친구 ID 목록: {friend_ids}")
 
@@ -702,7 +706,7 @@ def get_friend_places(friend_id):
     except (TypeError, ValueError):
         current_lat, current_lng = None, None
 
-    my_friends = Friend.query.filter_by(member_id=user_id, status='friend').all()
+    my_friends = Friend.query.filter_by(member_id=int(user_id), status='friend').all()
     my_friend_ids = [f.friend_id for f in my_friends]
 
     other_saver_ids = list(set(my_friend_ids + [user_id]))
@@ -1187,7 +1191,7 @@ def get_my_places():
     except (TypeError, ValueError):
         current_lat, current_lng = None, None
 
-    friends = Friend.query.filter_by(member_id=user_id, status='friend').all()
+    friends = Friend.query.filter_by(member_id=int(user_id), status='friend').all()
     friend_ids = [f.friend_id for f in friends]
     logger.debug(f"내 친구 목록: {friend_ids}")
 
@@ -1375,7 +1379,7 @@ def post_place_like(place_id):
         return jsonify({'message': 'Place not found'}), 404
 
     try:
-        existing_like = PlaceLike.query.filter_by(userid_id=user_id, placeid_id=place_id).first()
+        existing_like = PlaceLike.query.filter_by(userid_id=int(user_id), placeid_id=place_id).first()
 
         if existing_like:
             db.session.delete(existing_like)
