@@ -112,7 +112,7 @@ class Friend(db.Model):
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-    status = db.Enum('block','friend','give','waiting') # block 이면 친구 삭제되게 해야함
+    status = db.Column(db.Enum('block','friend','give','waiting')) # block 이면 친구 삭제되게 해야함
     
     friend_id = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id')) 
     
