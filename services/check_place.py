@@ -10,7 +10,7 @@ import boto3
 
 from models import db, Place, InstaUrl, UrlPlace
 from services.my_logger import get_my_logger
-from utils import get_full_photo_url
+from services.utils import get_full_photo_url
 
 logger = get_my_logger(__name__)
 s3 = boto3.client('s3')
