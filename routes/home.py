@@ -130,7 +130,7 @@ def get_all_pins():
             p.address,
             p.latitude,
             p.longitude,
-            p.list AS category,
+            p.category AS category,
             p.photo,
             p.rating_avg AS ratingAvg,
             p.rating_count AS ratingCount,
@@ -174,7 +174,7 @@ def get_all_pins():
 
     # 카테고리 쿼리 추가
     if category_filter and category_filter in valid_categories:
-      query += " AND p.list = %s"
+      query += " AND p.category = %s"
       params.append(category_filter)
     
     # 반경 거리 추가
@@ -222,20 +222,16 @@ def get_all_places():
     security:
       - Bearer: []
     parameters:
-      - name: sort
+      - name: lat
         in: query
-        type: string
-        enum: [latest, star]
-        default: latest
-        description: |
-          정렬 기준:
-          - latest: 친구가 저장한 최신순
-          - star: 친구가 매긴 별점 높은순
-      - name: category
+        type: number
+        format: float
+        description: 현재 사용자의 위도
+      - name: lng
         in: query
-        type: string
-        enum: [accessory, bar, cafe, cloth, etc, restaurant, dessert, exhibition, experience]
-        description: 카테고리 필터 (미선택 시 전체 조회)
+        type: number
+        format: float
+        description: 현재 사용자의 경도
     responses:
       200:
         description: 장소 목록 반환 성공 (savers는 항상 최신 저장 순으로 정렬됨)
@@ -302,6 +298,9 @@ def get_all_places():
         description: 인증 실패 (JWT 토큰 누락 또는 만료)
     """
     user_id = get_jwt_identity()
+
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
   # 현재 위치 파라미터 가져오기
     try:
         current_lat = request.args.get("lat", type=float)
@@ -343,7 +342,7 @@ def get_all_places():
             p.address,
             p.latitude,
             p.longitude,
-            p.list AS category,
+            p.category AS category,
             p.photo,
             p.rating_avg AS ratingAvg,
             p.rating_count AS ratingCount,
@@ -405,6 +404,7 @@ def get_all_places():
     
     places_dict = {}
     for row in rows:
+        logger.debug(f"row 내용: {row}")
         pid = row['placeId']
         if pid not in places_dict:
             raw_distance = row.get('distance')
@@ -432,6 +432,8 @@ def get_all_places():
             "profileImageUrl": row['friend_photo'] if row['friend_photo'] else "",
             "updated_at": row['updated_at']
         })
+
+        logger.debug(f"{places_dict[pid]["savers"]}")
 
     result_list = list(places_dict.values())
     
@@ -541,7 +543,7 @@ def get_friend_pins(friend_id):
             p.address,
             p.latitude,
             p.longitude,
-            p.list AS category,
+            p.category AS category,
             p.photo,
             p.rating_avg AS ratingAvg,
             p.rating_count AS ratingCount,
@@ -587,7 +589,7 @@ def get_friend_pins(friend_id):
 
     # 카테고리 쿼리 추가
     if category_filter and category_filter in valid_categories:
-      query += " AND p.list = %s"
+      query += " AND p.category = %s"
       params.append(category_filter)
 
     if current_lat is not None and current_lng is not None and current_distance is not None:
@@ -732,7 +734,7 @@ def get_friend_places(friend_id):
             p.address,
             p.latitude,
             p.longitude,
-            p.list AS category,
+            p.category AS category,
             p.photo,
             p.rating_avg AS ratingAvg,
             p.rating_count AS ratingCount,
@@ -755,7 +757,7 @@ def get_friend_places(friend_id):
     params = other_saver_ids + [user_id, friend_id]
 
     if category_filter and category_filter in valid_categories:
-        query += " AND p.list = %s"
+        query += " AND p.category = %s"
         params.append(category_filter)
 
     order_clause = "target_sp.rating DESC, target_sp.updated_at DESC" if sort_by == "star" else "target_sp.updated_at DESC"
@@ -882,7 +884,7 @@ def get_friend_comments(friend_id):
             p.id AS place_id,
             p.name AS place_name,
             p.address AS place_address,
-            p.list AS place_category,
+            p.category AS place_category,
             p.photo AS photo,
             CASE WHEN pl.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_liked
         FROM comments c
@@ -1019,7 +1021,7 @@ def get_my_pins():
             p.address,
             p.latitude,
             p.longitude,
-            p.list AS category,
+            p.category AS category,
             p.photo,
             p.rating_avg AS ratingAvg,
             p.rating_count AS ratingCount,
@@ -1055,7 +1057,7 @@ def get_my_pins():
 
     # 카테고리 쿼리 추가 
     if category_filter and category_filter in valid_categories:
-      query += " AND p.list = %s"
+      query += " AND p.category = %s"
       params.append(category_filter)
 
     if current_lat is not None and current_lng is not None and current_distance is not None:
@@ -1180,7 +1182,10 @@ def get_my_places():
                       type: string
                       description: "친구 프로필 이미지 URL"
     """
-    user_id = get_jwt_identity()
+    user_id = get_jwt_identity()  
+
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
 
     # 현재 위치 파라미터 가져오기
     try:
@@ -1209,7 +1214,7 @@ def get_my_places():
             p.address,
             p.latitude,
             p.longitude,
-            p.list AS category,
+            p.category AS category,
             p.photo,
             p.rating_avg AS ratingAvg,
             my_sp.rating AS myRating,
@@ -1276,6 +1281,7 @@ def get_my_places():
 
     places_dict = {}
     for row in rows:
+        logger.debug(f"row: {row}")
         pid = row['placeId']
         if pid not in places_dict:
             raw_distance = row.get('distance')
@@ -1289,7 +1295,7 @@ def get_my_places():
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
                 "list": row['category'],
-                "photo": row['photo'] if row['photo'] else "",
+                "photo": get_full_photo_url(row['photo']) if row['photo'] else "",
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['myRating'],
                 "isMarked": True, # 내 목록이므로 무조건 True
