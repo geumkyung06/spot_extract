@@ -783,7 +783,7 @@ def get_friend_places(friend_id):
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
                 "list": row['category'],
-                "photo": row['photo'] if row['photo'] else "",
+                "photo": get_full_photo_url(row['photo']) if row['photo'] else "",
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['targetFriendRating'], # 친구의 별점
                 "isMarked": bool(row['isMarked']),
@@ -1281,7 +1281,6 @@ def get_my_places():
 
     places_dict = {}
     for row in rows:
-        logger.debug(f"row: {row}")
         pid = row['placeId']
         if pid not in places_dict:
             raw_distance = row.get('distance')
