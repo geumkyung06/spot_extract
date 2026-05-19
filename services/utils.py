@@ -9,7 +9,4 @@ def get_full_photo_url(photo_path):
         return ""
     base_url = S3_BASE_URL.rstrip('/')
     
-    if "," in photo_path:
-        return [f"{base_url}/{p.strip().lstrip('/')}" for p in photo_path.split(",") if p.strip()]
-    
-    return f"{base_url}/{photo_path.strip().lstrip('/')}"
+    return [f"{base_url}/{p.strip().lstrip('/')}" for p in photo_path.split(",") if p.strip()]
