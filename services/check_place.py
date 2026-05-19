@@ -339,6 +339,7 @@ def process_places(place_queries: list[str], shortcut) -> list[dict]: # [[name, 
                 continue            
 
         raw_photos = google_data.get("photos", [])
+        logger.debug(f"저장한 구글 사진들: {raw_photos}")
         # 3. 데이터 병합
         # 주소만 있는 경우도 설명하는가? >> 봐야함. 근데 아마 주소만 있으면 안되게 할 듯
         if naver_success:
