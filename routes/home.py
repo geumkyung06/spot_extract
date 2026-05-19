@@ -404,7 +404,6 @@ def get_all_places():
     
     places_dict = {}
     for row in rows:
-        logger.debug(f"row 내용: {row}")
         pid = row['placeId']
         if pid not in places_dict:
             raw_distance = row.get('distance')
@@ -418,7 +417,7 @@ def get_all_places():
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
                 "list": row['category'],
-                "photo": get_full_photo_url(row.get('photo')),
+                "photo": get_full_photo_url(row.get('photo', '')),
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['friendRating'],
                 "isMarked": bool(row['isMarked']), # 내가 저장했는지 여부 정상 출력
@@ -426,6 +425,7 @@ def get_all_places():
                 "saversCount": 0,
                 "savers": []
             }
+            logger.debug(f"장소 {pid}: {row['name']} photo - {places_dict[pid]["photo"]}")
         
         places_dict[pid]["savers"].append({
             "nickname": row['friend_nickname'],
@@ -783,7 +783,7 @@ def get_friend_places(friend_id):
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
                 "list": row['category'],
-                "photo": get_full_photo_url(row['photo']) if row['photo'] else "",
+                "photo": get_full_photo_url(row.get('photo', '')),
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['targetFriendRating'], # 친구의 별점
                 "isMarked": bool(row['isMarked']),
@@ -791,7 +791,8 @@ def get_friend_places(friend_id):
                 "saversCount": 0,
                 "savers": []
             }
-        
+            logger.debug(f"장소 {pid}: {row['name']} photo - {places_dict[pid]["photo"]}")
+
         if row['friend_nickname']:
             if not any(s['nickname'] == row['friend_nickname'] for s in places_dict[pid]["savers"]):
                 places_dict[pid]["savers"].append({
@@ -1294,7 +1295,7 @@ def get_my_places():
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
                 "list": row['category'],
-                "photo": get_full_photo_url(row['photo']) if row['photo'] else "",
+                "photo": get_full_photo_url(row.get('photo', '')),
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['myRating'],
                 "isMarked": True, # 내 목록이므로 무조건 True
@@ -1302,6 +1303,7 @@ def get_my_places():
                 "saversCount": 0,
                 "savers": []
             }
+            logger.debug(f"장소 {pid}: {row['name']} photo - {places_dict[pid]["photo"]}")
 
         if row['friend_nickname']:
             places_dict[pid]["savers"].append({
