@@ -2,10 +2,12 @@ import os
 import pymysql
 import random
 import math
+import threading
 
 from flask import Blueprint, jsonify, request, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
+from services.push_notification import send_expo_push_notification
 from models import db, PlaceLike, Place, Friend, KakaoMem
 
 bp = Blueprint('friend', __name__)
@@ -438,6 +440,32 @@ def post_request_follow(friend_id):
         cursor.execute(waiting_query, (user_id, friend_id))
         
         db.commit()
+
+        # 푸시 알림
+        # 알림 메시지용: "OOO님이 팔로우를 요청했습니다"
+        cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (user_id,))
+        my_info = cursor.fetchone()
+        my_nickname = my_info['spot_nickname'] if my_info else "누군가"
+
+        token_query = """
+            SELECT expo_push_token FROM devices 
+            WHERE user_id = %s AND is_active = 1 AND expo_push_token IS NOT NULL
+        """
+        cursor.execute(token_query, (friend_id,))
+        target_device = cursor.fetchone()
+
+        # C. 토큰이 존재한다면, 알림 발송 함수를 스레드로 실행 (비동기)
+        if target_device and target_device['expo_push_token']:
+            target_token = target_device['expo_push_token']
+            title = "새로운 팔로우 요청"
+            body = f"{my_nickname}님이 팔로우를 요청했습니다."
+            
+            # 여기서 스레드를 띄워 알림을 쏘고 코드는 바로 다음 줄로 넘어갑니다.
+            thr = threading.Thread(
+                target=send_expo_push_notification, 
+                args=(target_token, title, body)
+            )
+            thr.start()
 
         return jsonify({'message': 'Send follow', 'friend_id': friend_id}), 201
 
