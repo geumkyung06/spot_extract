@@ -505,7 +505,7 @@ def post_accept_follow(friend_id):
             SELECT * FROM friend
             WHERE member_id = %s AND friend_id = %s AND status = 'waiting'
         """
-        cursor.execute(query, (user_id, friend_id))
+        cursor.execute(query, (friend_id, user_id))
         request_exist = cursor.fetchone()
 
         if not request_exist:
@@ -517,14 +517,13 @@ def post_accept_follow(friend_id):
         SET status = 'friend', updated_at = NOW()
         WHERE member_id = %s AND friend_id = %s
         """
-        cursor.execute(giving_query, (friend_id, user_id))
+        cursor.execute(giving_query, (user_id, friend_id))
         
         waiting_query = """
-        UPDATE friend
-        SET status = 'friend', updated_at = NOW()
-        WHERE member_id = %s AND friend_id = %s
+        DELETE FROM friend
+        WHERE member_id = %s AND friend_id = %s AND status = 'waiting'
         """
-        cursor.execute(waiting_query, (user_id, friend_id))
+        cursor.execute(waiting_query, (friend_id, user_id))
         db.commit()
 
         return jsonify({'message': 'Follow access', 'friend_id': friend_id}), 200
