@@ -428,7 +428,6 @@ def post_request_follow(friend_id):
         if existing_relation:
             return jsonify({'message': f"Already {existing_relation['status']} status"}), 409
 
-        # 상대방 상태엔 DB에 'waiting' 상태로 저장
         waiting_query = """
             INSERT INTO friend (member_id, friend_id, status, created_at, updated_at) 
             VALUES (%s, %s, 'waiting', NOW(), NOW())
@@ -436,17 +435,7 @@ def post_request_follow(friend_id):
                 status = 'waiting',
                 updated_at = NOW()
         """
-        cursor.execute(waiting_query, (friend_id, user_id))
-
-        # 내가 보낸 건 DB에 'give' 상태로 저장
-        giving_query = """
-            INSERT INTO friend (member_id, friend_id, status, created_at, updated_at) 
-            VALUES (%s, %s, 'give', NOW(), NOW())
-            ON DUPLICATE KEY UPDATE
-                status = 'give',
-                updated_at = NOW()
-        """
-        cursor.execute(giving_query, (user_id, friend_id))
+        cursor.execute(waiting_query, (user_id, friend_id))
         
         db.commit()
 
@@ -512,19 +501,12 @@ def post_accept_follow(friend_id):
             return jsonify({'message': 'There are no pending follow requests'}), 404
 
         # 상태를 'friend'로 업데이트 (팔로우 허락)
-        giving_query = """
+        waiting_query = """
         UPDATE friend
         SET status = 'friend', updated_at = NOW()
         WHERE member_id = %s AND friend_id = %s
         """
-        cursor.execute(giving_query, (user_id, friend_id))
-        
-        waiting_query = """
-        DELETE FROM friend
-        WHERE member_id = %s AND friend_id = %s AND status = 'waiting'
-        """
         cursor.execute(waiting_query, (friend_id, user_id))
-        db.commit()
 
         return jsonify({'message': 'Follow access', 'friend_id': friend_id}), 200
 
