@@ -5,15 +5,6 @@ from sqlalchemy.ext.compiler import compiles
 
 db = SQLAlchemy()
 
-'''
-@compiles(BigInteger, 'sqlite')
-def compile_big_int_sqlite(type_, compiler, **kw):
-    """
-    SQLite 환경에서는 BigInteger를 INTEGER로 변환하여
-    AUTOINCREMENT가 정상 작동하도록 함
-    """
-    return 'INTEGER'
-'''
 # insta_url table
 class InstaUrl(db.Model):
     __tablename__ = 'insta_url'
@@ -148,3 +139,17 @@ class SavedSeq(db.Model):
     __tablename__ = 'saved_place_seq'
     
     next_val = db.Column(db.BigInteger, primary_key=True, default=0)
+
+class Device(db.Model):
+    __tablename__ = 'devices'
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id', ondelete='CASCADE'), nullable=False)
+    
+    expo_push_token = db.Column(db.String(255), nullable=True)
+    device_type = db.Column(db.String(50), nullable=True) # 예: 'ios', 'android'
+    app_version = db.Column(db.String(50))
+    is_active = db.Column(db.Boolean, default=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
