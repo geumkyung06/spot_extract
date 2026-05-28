@@ -454,13 +454,12 @@ def post_request_follow(friend_id):
         cursor.execute(token_query, (friend_id,))
         target_device = cursor.fetchone()
 
-        # C. 토큰이 존재한다면, 알림 발송 함수를 스레드로 실행 (비동기)
+        # 비동기 실행
         if target_device and target_device['expo_push_token']:
             target_token = target_device['expo_push_token']
             title = "새로운 팔로우 요청"
             body = f"{my_nickname}님이 팔로우를 요청했습니다."
             
-            # 여기서 스레드를 띄워 알림을 쏘고 코드는 바로 다음 줄로 넘어갑니다.
             thr = threading.Thread(
                 target=send_expo_push_notification, 
                 args=(target_token, title, body)
@@ -535,6 +534,33 @@ def post_accept_follow(friend_id):
         WHERE member_id = %s AND friend_id = %s
         """
         cursor.execute(waiting_query, (friend_id, user_id))
+
+        db.commit()
+
+        # 푸시 알림
+        # 알림 메시지용: "OOO님이 팔로우를 수락했습니다"
+        cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (friend_id,))
+        my_info = cursor.fetchone()
+        my_nickname = my_info['spot_nickname'] if my_info else "누군가"
+
+        token_query = """
+            SELECT expo_push_token FROM devices 
+            WHERE user_id = %s AND is_active = 1 AND expo_push_token IS NOT NULL
+        """
+        cursor.execute(token_query, (user_id,))
+        target_device = cursor.fetchone()
+
+        # 비동기 실행
+        if target_device and target_device['expo_push_token']:
+            target_token = target_device['expo_push_token']
+            title = "팔로우 수락"
+            body = f"{my_nickname}님이 팔로우를 수락했습니다."
+            
+            thr = threading.Thread(
+                target=send_expo_push_notification, 
+                args=(target_token, title, body)
+            )
+            thr.start()
 
         return jsonify({'message': 'Follow access', 'friend_id': friend_id}), 200
 
