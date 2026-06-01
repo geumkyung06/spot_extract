@@ -7,6 +7,7 @@ from konlpy.tag import Kkma # 좀 더 가벼운 모델로 변경
 from collections import Counter
 from openai import OpenAI
 from services.my_logger import get_my_logger
+from instagram_image_extracter import global_browser_manager
 
 logger = get_my_logger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -51,18 +52,17 @@ async def get_caption_no_login(post_url: str):
 
     async with async_playwright() as p:
         
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
-            locale="ko-KR",
-            viewport={"width": 360, "height": 800} 
-        )
+        await global_browser_manager.start()
+        context = await global_browser_manager.new_context(
+        locale="ko-KR",
+        viewport={"width": 360, "height": 800}
+    )
         page = await context.new_page()
         
-        await page.route("**/*", lambda route: 
-            route.abort() if route.request.resource_type in ["image", "media", "font"] 
-            else route.continue_()
-        )
+        await page.route("**/*", lambda route:
+        route.abort() if route.request.resource_type in ["image", "media", "font"]
+        else route.continue_()
+    )
 
         try:
             await page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
@@ -157,8 +157,9 @@ async def get_caption_no_login(post_url: str):
 
         except Exception as e:
             logger.error(f"Playwright 에러: {e}")
-        
-        await browser.close()
+        finally:
+            await page.close()
+            await context.close()  
 
     return caption_text
 

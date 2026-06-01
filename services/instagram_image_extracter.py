@@ -17,36 +17,37 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 sem = asyncio.Semaphore(3) # OCR 동시 요청 제한
 
 # 브라우저 매니저
+browser_sem = asyncio.Semaphore(2)
+
 class BrowserManager:
-    def __init__(self):
-        self.playwright = None
-        self.browser = None
-        self.context = None
-
     async def start(self):
-        """서버 시작 시 또는 최초 요청 시 실행"""
         if self.browser is not None:
-            return # 이미 켜져 있으면 패스
-
+            return
         self.playwright = await async_playwright().start()
-        # 리눅스 호환성 및 속도 최적화 옵션 추가
         self.browser = await self.playwright.chromium.launch(
-            headless=True, 
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",  # 추가: 공유메모리 대신 /tmp 사용
+                "--disable-gpu",             # 추가: GPU 비활성화
+            ]
         )
-        # 컨텍스트(세션) 미리 생성
-        self.context = await self.browser.new_context(
-            user_agent="Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36"
+        logger.info("✅ 브라우저 준비 완료")
+
+    async def new_context(self, **kwargs):
+        """요청마다 새 컨텍스트 반환"""
+        return await self.browser.new_context(
+            user_agent="Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
+            **kwargs
         )
-        print("✅ 브라우저(Warm) 준비 완료")
 
     async def stop(self):
         """서버 완전 종료 시에만 호출"""
-        if self.context: await self.context.close()
         if self.browser: await self.browser.close()
         if self.playwright: await self.playwright.stop()
         self.browser = None
-        print("🛑 브라우저 종료")
+        logger.info("🛑 브라우저 종료")
 
 # 전역 브라우저 인스턴스 (재사용을 위해 함수 밖으로 뺌)
 global_browser_manager = BrowserManager()
@@ -90,78 +91,79 @@ async def extract_images(browser_manager: BrowserManager, post_url: str):
     ordered_images = [] 
     seen_base_urls = set()
 
-    # 이미 켜져 있는 context에서 '탭'만 새로 엶
-    page = await browser_manager.context.new_page()
+    async with browser_sem:  # 추가
+        context = await browser_manager.new_context()
+        page = await context.new_page()
 
-    # 이미지, 폰트, 미디어 차단
-    await page.route("**/*", lambda route: 
-        route.abort() if route.request.resource_type in ["media", "font", "stylesheet"] 
-        else route.continue_()
-    )
+        # 이미지, 폰트, 미디어 차단
+        await page.route("**/*", lambda route: 
+            route.abort() if route.request.resource_type in ["media", "font", "stylesheet"] 
+            else route.continue_()
+        )
 
-    # 정규식 패턴: < or " 가 나오기 전까지의 URL 캡처
-    url_pattern = r'https://scontent[^\s"\'<]+|https:\\/\\/scontent[^\s"\'<]+'
-    dimension_pattern = re.compile(r'[ps]\d{2,4}x\d{2,4}')
+        # 정규식 패턴: < or " 가 나오기 전까지의 URL 캡처
+        url_pattern = r'https://scontent[^\s"\'<]+|https:\\/\\/scontent[^\s"\'<]+'
+        dimension_pattern = re.compile(r'[ps]\d{2,4}x\d{2,4}')
 
-    def process_and_add(raw_urls):
-        for raw_url in raw_urls:
-            # 꼬리 자르기
-            clean_url = raw_url.split('\\u003C')[0].split('<')[0]
-            clean_url = clean_url.split('\\u0022')[0].split('"')[0]
+        def process_and_add(raw_urls):
+            for raw_url in raw_urls:
+                # 꼬리 자르기
+                clean_url = raw_url.split('\\u003C')[0].split('<')[0]
+                clean_url = clean_url.split('\\u0022')[0].split('"')[0]
 
-            # 디코딩
-            clean_url = clean_url.replace('\\/', '/')
-            clean_url = clean_url.replace('\\u0026', '&')
-            clean_url = clean_url.replace('\\u0025', '%') 
-            clean_url = html.unescape(clean_url)
+                # 디코딩
+                clean_url = clean_url.replace('\\/', '/')
+                clean_url = clean_url.replace('\\u0026', '&')
+                clean_url = clean_url.replace('\\u0025', '%') 
+                clean_url = html.unescape(clean_url)
+                
+                # 필러링 로직(비디오 등)
+                if ".mp4" in clean_url: continue 
+                if "dash" in clean_url or "segment" in clean_url.lower(): continue 
+                if "/t51.2885-19/" in clean_url: continue 
+                if "vp/" in clean_url: continue 
+                
+                # 고화질 추출 (아이콘, 작은 썸네일 제거)
+                if dimension_pattern.search(clean_url): continue # 예) p640x640 방지
+                if re.search(r'\/s\d{3,4}x\d{3,4}\/', clean_url): continue # 예) /s320x320/ 방지
+                if "c0." in clean_url: continue # 크롭된 썸네일 방지
+                
+                base_url = clean_url.split('?')[0]
+                
+                if base_url not in seen_base_urls:
+                    seen_base_urls.add(base_url)
+                    ordered_images.append(clean_url)
+
+        async def handle_response(response):
+            if "graphql/query" in response.url or "api/v1" in response.url:
+                try:
+                    body = await response.text()
+                    matches = re.findall(url_pattern, body)
+                    process_and_add(matches)
+                except:
+                    pass
+
+        page.on("response", handle_response)
+
+        try:
+            await page.goto(post_url, wait_until="domcontentloaded", timeout=10000)
             
-            # 필러링 로직(비디오 등)
-            if ".mp4" in clean_url: continue 
-            if "dash" in clean_url or "segment" in clean_url.lower(): continue 
-            if "/t51.2885-19/" in clean_url: continue 
-            if "vp/" in clean_url: continue 
-            
-            # 고화질 추출 (아이콘, 작은 썸네일 제거)
-            if dimension_pattern.search(clean_url): continue # 예) p640x640 방지
-            if re.search(r'\/s\d{3,4}x\d{3,4}\/', clean_url): continue # 예) /s320x320/ 방지
-            if "c0." in clean_url: continue # 크롭된 썸네일 방지
-            
-            base_url = clean_url.split('?')[0]
-            
-            if base_url not in seen_base_urls:
-                seen_base_urls.add(base_url)
-                ordered_images.append(clean_url)
+            # HTML에서 1차 추출
+            html_content = await page.content()
+            process_and_add(re.findall(url_pattern, html_content))
 
-    async def handle_response(response):
-        if "graphql/query" in response.url or "api/v1" in response.url:
-            try:
-                body = await response.text()
-                matches = re.findall(url_pattern, body)
-                process_and_add(matches)
-            except:
-                pass
+            # 네트워크 idle 감지
+            await page.wait_for_load_state("networkidle", timeout=5000)
 
-    page.on("response", handle_response)
+            # 안전장치: 너무 많이 잡히면 앞부분(메인사진)만 자름
+            if len(ordered_images) > 10:
+                ordered_images = ordered_images[:10]
 
-    try:
-        await page.goto(post_url, wait_until="domcontentloaded", timeout=10000)
-        
-        # HTML에서 1차 추출
-        html_content = await page.content()
-        process_and_add(re.findall(url_pattern, html_content))
-
-        # 백그라운드 API 통신 대기 (제한 없이 3초 풀 대기)
-        for _ in range(6): 
-            await asyncio.sleep(0.5)
-
-        # 안전장치: 너무 많이 잡히면 앞부분(메인사진)만 자름
-        if len(ordered_images) > 10:
-            ordered_images = ordered_images[:10]
-
-    except Exception as e:
-        print(f"추출 에러: {e}")
-    finally:
-        await page.close()
+        except Exception as e:
+            logger.error(f"추출 에러: {e}")
+        finally:
+            await page.close()
+            await context.close()
 
     return ordered_images
 
