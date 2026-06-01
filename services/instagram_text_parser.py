@@ -7,7 +7,7 @@ from konlpy.tag import Kkma # 좀 더 가벼운 모델로 변경
 from collections import Counter
 from openai import OpenAI
 from services.my_logger import get_my_logger
-from services.instagram_image_extracter import global_browser_manager
+from services.browser_manager import global_browser_manager
 
 logger = get_my_logger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))

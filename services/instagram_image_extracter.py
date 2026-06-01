@@ -8,6 +8,7 @@ from google import genai
 from google.genai import types
 from PIL import Image
 from services.my_logger import get_my_logger
+from services.browser_manager import global_browser_manager, browser_sem
 
 # 설정
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -15,9 +16,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 logger = get_my_logger(__name__)
 client = genai.Client(api_key=GEMINI_API_KEY)
 sem = asyncio.Semaphore(3) # OCR 동시 요청 제한
-
-# 브라우저 매니저
-browser_sem = asyncio.Semaphore(2)
 
 class BrowserManager:
     async def start(self):
