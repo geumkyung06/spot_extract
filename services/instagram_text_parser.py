@@ -50,116 +50,114 @@ async def get_caption_no_login(post_url: str):
     caption_text = ""
     success_step = "failed"
 
-    async with async_playwright() as p:
-        
-        await global_browser_manager.start()
-        context = await global_browser_manager.new_context(
+    await global_browser_manager.start()
+    context = await global_browser_manager.new_context(
         locale="ko-KR",
         viewport={"width": 360, "height": 800}
     )
-        page = await context.new_page()
-        
-        await page.route("**/*", lambda route:
+    page = await context.new_page()
+
+    await page.route("**/*", lambda route:
         route.abort() if route.request.resource_type in ["image", "media", "font"]
         else route.continue_()
     )
 
+    try:
+        await page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
+        
+        logger.debug("1단계: 일반 게시물 로직 시도...")
+        
+        # 일반 포스트
+        # 1-1. JSON-LD
         try:
-            await page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
-            
-            logger.debug("1단계: 일반 게시물 로직 시도...")
-            
-            # 일반 포스트
-            # 1-1. JSON-LD
-            try:
-                json_ld_handle = await page.query_selector('script[type="application/ld+json"]')
-                if json_ld_handle:
-                    json_text = await json_ld_handle.inner_text()
-                    data = json.loads(json_text)
-                    
-                    if "caption" in data:
-                        caption_text = data["caption"]
-                    elif "articleBody" in data:
-                        caption_text = data["articleBody"]
-                    
-                    if caption_text:
-                        success_step = "1-1 (JSON-LD)"
-            except: pass
-
-            # 1-2. 정규식(Regex)
-            if not caption_text:
-                try:
-                    content = await page.content()
-                    patterns = [
-                        r'"edge_media_to_caption"\s*:\s*\{\s*"edges"\s*:\s*\[\s*\{\s*"node"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"',
-                        r'"caption"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"'
-                    ]
-                    for pattern in patterns:
-                        match = re.search(pattern, content)
-                        if match:
-                            raw_text = match.group(1)
-                            caption_text = json.loads(f'"{raw_text}"')
-                            success_step = "1-2 (Regex)"
-                            break
-                except: pass
-
-
-            # 릴스
-            if not caption_text:
-                logger.debug("1단계 실패. 2단계(릴스 로직)로 전환합니다...")
-
-                # 2-1. Meta Tag 추출
-                try:
-                    meta_desc = await page.get_attribute('meta[property="og:description"]', 'content')
-                    if meta_desc:
-                        if ": \"" in meta_desc:
-                            caption_text = meta_desc.split(": \"", 1)[1].rsplit("\"", 1)[0]
-                        elif ": “" in meta_desc:
-                             caption_text = meta_desc.split(": “", 1)[1].rsplit("”", 1)[0]
-                        else:
-                            caption_text = meta_desc
-                        
-                        if caption_text:
-                            success_step = "2-1 (Reels Logic)"
-                except: pass
-
-                # 2-2. UI 요소 직접 추출
-                if not caption_text:
-                    try:
-                        # 릴스나 게시물의 본문은 보통 h1 태그나 특정 클래스에 있음
-                        element = await page.query_selector('h1')
-                        if not element:
-                            element = await page.query_selector('div[data-testid="content-container"] span')
-                        
-                        if element:
-                            caption_text = await element.inner_text()
-                            success_step = "2-2 (Reels UI element)"
-                    except: pass
-
-                # 2-3. 정규식 
-                if not caption_text:
-                    try:
-                        content = await page.content() 
-                        reel_pattern = r'"clips_metadata"\s*:\s*\{.*?"caption"\s*:\s*"([^"]+)"'
-                        
-                        match = re.search(reel_pattern, content)
-                        if match:
-                            raw_text = match.group(1)
-                            caption_text = json.loads(f'"{raw_text}"')
-                            success_step = "2-3 (Reels Regex)"
-                    except: pass
+            json_ld_handle = await page.query_selector('script[type="application/ld+json"]')
+            if json_ld_handle:
+                json_text = await json_ld_handle.inner_text()
+                data = json.loads(json_text)
+                
+                if "caption" in data:
+                    caption_text = data["caption"]
+                elif "articleBody" in data:
+                    caption_text = data["articleBody"]
                 
                 if caption_text:
-                    # 성공 시: URL, 성공한 단계, 본문 앞부분 출력
-                    logger.info(f"[SUCCESS] {post_url} | Step: {success_step} | Text: {caption_text[:10]}...")
-                else:
-                    logger.warning(f"[FAILED] {post_url} | 캡션을 찾지 못했습니다.")
+                    success_step = "1-1 (JSON-LD)"
+        except: pass
 
-        except Exception as e:
-            logger.error(f"Playwright 에러: {e}")
-        finally:
-            await page.close()
-            await context.close()  
+        # 1-2. 정규식(Regex)
+        if not caption_text:
+            try:
+                content = await page.content()
+                patterns = [
+                    r'"edge_media_to_caption"\s*:\s*\{\s*"edges"\s*:\s*\[\s*\{\s*"node"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"',
+                    r'"caption"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"'
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, content)
+                    if match:
+                        raw_text = match.group(1)
+                        caption_text = json.loads(f'"{raw_text}"')
+                        success_step = "1-2 (Regex)"
+                        break
+            except: pass
+
+
+        # 릴스
+        if not caption_text:
+            logger.debug("1단계 실패. 2단계(릴스 로직)로 전환합니다...")
+
+            # 2-1. Meta Tag 추출
+            try:
+                meta_desc = await page.get_attribute('meta[property="og:description"]', 'content')
+                if meta_desc:
+                    if ": \"" in meta_desc:
+                        caption_text = meta_desc.split(": \"", 1)[1].rsplit("\"", 1)[0]
+                    elif ": “" in meta_desc:
+                            caption_text = meta_desc.split(": “", 1)[1].rsplit("”", 1)[0]
+                    else:
+                        caption_text = meta_desc
+                    
+                    if caption_text:
+                        success_step = "2-1 (Reels Logic)"
+            except: pass
+
+            # 2-2. UI 요소 직접 추출
+            if not caption_text:
+                try:
+                    # 릴스나 게시물의 본문은 보통 h1 태그나 특정 클래스에 있음
+                    element = await page.query_selector('h1')
+                    if not element:
+                        element = await page.query_selector('div[data-testid="content-container"] span')
+                    
+                    if element:
+                        caption_text = await element.inner_text()
+                        success_step = "2-2 (Reels UI element)"
+                except: pass
+
+            # 2-3. 정규식 
+            if not caption_text:
+                try:
+                    content = await page.content() 
+                    reel_pattern = r'"clips_metadata"\s*:\s*\{.*?"caption"\s*:\s*"([^"]+)"'
+                    
+                    match = re.search(reel_pattern, content)
+                    if match:
+                        raw_text = match.group(1)
+                        caption_text = json.loads(f'"{raw_text}"')
+                        success_step = "2-3 (Reels Regex)"
+                except: pass
+            
+            if caption_text:
+                # 성공 시: URL, 성공한 단계, 본문 앞부분 출력
+                logger.info(f"[SUCCESS] {post_url} | Step: {success_step} | Text: {caption_text[:10]}...")
+            else:
+                logger.warning(f"[FAILED] {post_url} | 캡션을 찾지 못했습니다.")
+
+    except Exception as e:
+        logger.error(f"Playwright 에러: {e}")
+    finally:
+        await page.close()
+        await context.close()  
 
     return caption_text
 
