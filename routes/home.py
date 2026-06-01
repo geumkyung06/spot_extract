@@ -1095,9 +1095,8 @@ def get_my_pins():
 
     
 # ME: 내 저장 장소 목록 조회
-# /main/me/places?lat=00.00&lng=00.00&category=cafe&sort=distance
 @bp.route('/main/me/places', methods=['GET'])
-@jwt_required()
+@jwt_required(optional=True)
 def get_my_places():
     """
     내가 저장한 장소 목록 조회
@@ -1148,6 +1147,9 @@ def get_my_places():
               list:
                 type: string
                 description: "장소 카테고리"
+              SaveType: 
+                type: string
+                description: "저장 방법"
               photo:
                 type: string
                 description: "장소 사진 URL"
@@ -1183,7 +1185,7 @@ def get_my_places():
                       type: string
                       description: "친구 프로필 이미지 URL"
     """
-    user_id = get_jwt_identity()  
+    user_id = 10
 
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -1219,6 +1221,7 @@ def get_my_places():
             p.photo,
             p.rating_avg AS ratingAvg,
             my_sp.rating AS myRating,
+            my_sp.save_type AS save_type,
             my_sp.updated_at AS my_updated_at,
             f_k.spot_nickname AS friend_nickname,
             f_k.photo AS friend_photo,
@@ -1295,6 +1298,7 @@ def get_my_places():
                 "latitude": float(row['latitude']) if row['latitude'] else 0.0,
                 "longitude": float(row['longitude']) if row['longitude'] else 0.0,
                 "list": row['category'],
+                "SaveType": row['save_type'],
                 "photo": get_full_photo_url(row.get('photo', '')),
                 "ratingAvg": float(row['ratingAvg']) if row['ratingAvg'] else 0.0,
                 "myRating": row['myRating'],
@@ -1303,7 +1307,7 @@ def get_my_places():
                 "saversCount": 0,
                 "savers": []
             }
-            logger.debug(f"장소 {pid}: {row['name']} photo - {places_dict[pid]["photo"]}")
+            logger.debug(f"장소 {pid}: {places_dict[pid]['SaveType']}")
 
         if row['friend_nickname']:
             places_dict[pid]["savers"].append({
