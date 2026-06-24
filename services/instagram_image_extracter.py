@@ -8,7 +8,7 @@ from google import genai
 from google.genai import types
 from PIL import Image
 from services.my_logger import get_my_logger
-from services.browser_manager import global_browser_manager, browser_sem
+from services.browser_manager import global_browser_manager
 
 # 설정
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -89,82 +89,66 @@ async def extract_images(browser_manager: BrowserManager, post_url: str):
     ordered_images = [] 
     seen_base_urls = set()
 
-    async with browser_sem:  # 추가
-        context = await browser_manager.new_context()
-        page = await context.new_page()
+    context = await browser_manager.new_context()  # 내부에서 sem.acquire()
+    page = await context.new_page()
 
-        # 이미지, 폰트, 미디어 차단
-        await page.route("**/*", lambda route: 
-            route.abort() if route.request.resource_type in ["media", "font", "stylesheet"] 
-            else route.continue_()
-        )
+    await page.route("**/*", lambda route: 
+        route.abort() if route.request.resource_type in ["media", "font", "stylesheet"] 
+        else route.continue_()
+    )
 
-        # 정규식 패턴: < or " 가 나오기 전까지의 URL 캡처
-        url_pattern = r'https://scontent[^\s"\'<]+|https:\\/\\/scontent[^\s"\'<]+'
-        dimension_pattern = re.compile(r'[ps]\d{2,4}x\d{2,4}')
+    url_pattern = r'https://scontent[^\s"\'<]+|https:\\/\\/scontent[^\s"\'<]+'
+    dimension_pattern = re.compile(r'[ps]\d{2,4}x\d{2,4}')
 
-        def process_and_add(raw_urls):
-            for raw_url in raw_urls:
-                # 꼬리 자르기
-                clean_url = raw_url.split('\\u003C')[0].split('<')[0]
-                clean_url = clean_url.split('\\u0022')[0].split('"')[0]
-
-                # 디코딩
-                clean_url = clean_url.replace('\\/', '/')
-                clean_url = clean_url.replace('\\u0026', '&')
-                clean_url = clean_url.replace('\\u0025', '%') 
-                clean_url = html.unescape(clean_url)
-                
-                # 필러링 로직(비디오 등)
-                if ".mp4" in clean_url: continue 
-                if "dash" in clean_url or "segment" in clean_url.lower(): continue 
-                if "/t51.2885-19/" in clean_url: continue 
-                if "vp/" in clean_url: continue 
-                
-                # 고화질 추출 (아이콘, 작은 썸네일 제거)
-                if dimension_pattern.search(clean_url): continue # 예) p640x640 방지
-                if re.search(r'\/s\d{3,4}x\d{3,4}\/', clean_url): continue # 예) /s320x320/ 방지
-                if "c0." in clean_url: continue # 크롭된 썸네일 방지
-                
-                base_url = clean_url.split('?')[0]
-                
-                if base_url not in seen_base_urls:
-                    seen_base_urls.add(base_url)
-                    ordered_images.append(clean_url)
-
-        async def handle_response(response):
-            if "graphql/query" in response.url or "api/v1" in response.url:
-                try:
-                    body = await response.text()
-                    matches = re.findall(url_pattern, body)
-                    process_and_add(matches)
-                except:
-                    pass
-
-        page.on("response", handle_response)
-
-        try:
-            await page.goto(post_url, wait_until="domcontentloaded", timeout=10000)
+    def process_and_add(raw_urls):
+        for raw_url in raw_urls:
+            clean_url = raw_url.split('\\u003C')[0].split('<')[0]
+            clean_url = clean_url.split('\\u0022')[0].split('"')[0]
+            clean_url = clean_url.replace('\\/', '/')
+            clean_url = clean_url.replace('\\u0026', '&')
+            clean_url = clean_url.replace('\\u0025', '%') 
+            clean_url = html.unescape(clean_url)
             
-            # HTML에서 1차 추출
-            html_content = await page.content()
-            process_and_add(re.findall(url_pattern, html_content))
+            if ".mp4" in clean_url: continue 
+            if "dash" in clean_url or "segment" in clean_url.lower(): continue 
+            if "/t51.2885-19/" in clean_url: continue 
+            if "vp/" in clean_url: continue 
+            if dimension_pattern.search(clean_url): continue
+            if re.search(r'\/s\d{3,4}x\d{3,4}\/', clean_url): continue
+            if "c0." in clean_url: continue
+            
+            base_url = clean_url.split('?')[0]
+            if base_url not in seen_base_urls:
+                seen_base_urls.add(base_url)
+                ordered_images.append(clean_url)
 
-            # 네트워크 idle 감지
-            await page.wait_for_load_state("networkidle", timeout=5000)
+    async def handle_response(response):
+        if "graphql/query" in response.url or "api/v1" in response.url:
+            try:
+                body = await response.text()
+                matches = re.findall(url_pattern, body)
+                process_and_add(matches)
+            except:
+                pass
 
-            # 안전장치: 너무 많이 잡히면 앞부분(메인사진)만 자름
-            if len(ordered_images) > 10:
-                ordered_images = ordered_images[:10]
+    page.on("response", handle_response)
 
-        except Exception as e:
-            logger.error(f"추출 에러: {e}")
-        finally:
-            await page.close()
-            await context.close()
+    try:
+        await page.goto(post_url, wait_until="domcontentloaded", timeout=10000)
+        html_content = await page.content()
+        process_and_add(re.findall(url_pattern, html_content))
+        await page.wait_for_load_state("networkidle", timeout=5000)
+
+        if len(ordered_images) > 10:
+            ordered_images = ordered_images[:10]
+
+    except Exception as e:
+        logger.error(f"추출 에러: {e}")
+    finally:
+        await page.close()
+        await browser_manager.close_context(context)  # 내부에서 sem.release()
 
     return ordered_images
-
 # 다운로드
 async def process_download(session, img_url):
     try:
