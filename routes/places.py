@@ -48,7 +48,6 @@ def save_user_places():
         
         body = request.get_json() or {}
         save_type = body.get("save_type", "spot") # 기본값 설정 - 인스타에선 "instagram"
-        logger.debug(f"수신된 전체 바디: {body}") # 로그 추가
         
         input_ids = body.get("place_ids", [])
         logger.debug(f"추출된 input_ids: {input_ids}") # 로그 추가
@@ -73,12 +72,6 @@ def save_user_places():
         for pid in target_ids:
             # 장소가 실제로 존재하는지 확인
             place_exists = Place.query.filter_by(id=pid).first()
-
-            logger.debug(f"pid={pid} (type={type(pid)}), place_exists={place_exists}")
-            
-            # 실제 DB에 있는 id 범위도 확인
-            all_ids = [p.id for p in Place.query.all()]
-            logger.debug(f"DB에 존재하는 Place ids: {all_ids}")
 
             if not place_exists:
                 logger.warning(f"Place {pid} not found in DB - SKIPPING")
