@@ -63,7 +63,9 @@ async def get_caption_no_login(post_url: str):
     )
 
     try:
+        logger.debug("페이지 goto 시작")
         await page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
+        logger.debug("페이지 goto 완료")
         
         logger.debug("1단계: 일반 게시물 로직 시도...")
         
@@ -82,6 +84,7 @@ async def get_caption_no_login(post_url: str):
                 
                 if caption_text:
                     success_step = "1-1 (JSON-LD)"
+            logger.debug("1-1 결과: {caption_text[:20] if caption_text else 'None'}")
         except: pass
 
         # 1-2. 정규식(Regex)
