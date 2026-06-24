@@ -42,8 +42,7 @@ def save_user_places():
     """
 
     try:
-        #user_id = 1234
-        user_id = get_jwt_identity() 
+        user_id = int(get_jwt_identity())
         if not user_id:
             return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
         
@@ -74,7 +73,15 @@ def save_user_places():
         for pid in target_ids:
             # 장소가 실제로 존재하는지 확인
             place_exists = Place.query.filter_by(id=pid).first()
+
+            logger.debug(f"pid={pid} (type={type(pid)}), place_exists={place_exists}")
+            
+            # 실제 DB에 있는 id 범위도 확인
+            all_ids = [p.id for p in Place.query.all()]
+            logger.debug(f"DB에 존재하는 Place ids: {all_ids}")
+
             if not place_exists:
+                logger.warning(f"Place {pid} not found in DB - SKIPPING")
                 continue
 
             # 이미 저장했는지 확인
@@ -116,70 +123,3 @@ def save_user_places():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
-
-
-'''@user_places_bp.route("/", methods=["GET"])
-@jwt_required()
-def list_my_places():
-    """
-    보관함 장소 목록 조회
-    ---
-    tags:
-      - User Places
-    parameters:
-      - name: page
-        in: query
-        type: integer
-        default: 1
-      - name: size
-        in: query
-        type: integer
-        default: 20
-    responses:
-      200:
-        description: 조회 성공
-    """
-
-    try:
-        user_id = get_jwt_identity()
-        
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-
-        # Pagination: SavedPlace 조회(최신순)
-        pagination = SavedPlace.query.filter_by(user_id=user_id)\
-            .order_by(SavedPlace.created_at.desc())\
-            .paginate(page=page, per_page=size, error_out=False)
-
-        results = []
-        for item in pagination.items:
-            # item.place를 통해 Place 테이블 정보 접근 (Relationship 활용)
-            place_info = item.place 
-            if not place_info:
-                continue
-                
-            results.append({
-                "saved_id": item.id,       # saved_place 테이블의 ID
-                "save_type": item.save_type,
-                "saved_at": item.created_at,
-                "place": {                 # 실제 장소 상세 정보
-                    "place_id": place_info.id,
-                    "name": place_info.name,
-                    "address": place_info.address,
-                    "list": place_info.list, # list로 변경해야함
-                    "latitude": place_info.latitude,
-                    "longitude": place_info.longitude,
-                    "thumbnail": place_info.photo,
-                    "rating_avg": place_info.rating_avg
-                }
-            })
-
-        return jsonify({
-            "page": page,
-            "total_pages": pagination.pages,
-            "total_items": pagination.total,
-            "places": results
-        }), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500'''
