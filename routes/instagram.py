@@ -11,7 +11,6 @@ import re
 from services.instagram_text_parser import get_caption_no_login, split_caption, extract_places_with_gpt, is_place_post
 from services.instagram_image_extracter import global_browser_manager, extract_insta_images
 from services.check_place import process_places
-from services.browser import browser_service
 from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad
 from services.my_logger import get_my_logger
 from services.utils import get_full_photo_url
@@ -257,17 +256,16 @@ async def analyze_instagram():
 
                 logger.debug(f"search list: {to_search_naver}")
                 search_results = process_places(to_search_naver, shortcut)
+                search_places = save_places_to_db(url_id, search_results)
                 
-                add_places = get_new_unique_places(post_places, search_results)
-                logger.debug(f"합치기 전 장소들: {post_places}")
+                # 겹치는 장소인지 확인
+                add_places = get_new_unique_places(post_places, search_places)
+                logger.debug(f"합치기 전 장소들: {post_places}") 
                 post_places.extend(add_places)
                 logger.debug(f"post 장소들: {post_places}")
             else:
                 handle_fail_count(user_id) 
                 return jsonify({'status':'failed', 'message': "can not found places"}), 404
-            
-            if search_results:
-                save_places_to_db(url_id, search_results)
 
         redis_client.delete(f"fail_count:{user_id}")
         add_score_and_check_ad(user_id, earned_score) # 실패 초기화
@@ -275,6 +273,7 @@ async def analyze_instagram():
 
         end = time.time()
         logger.debug(f"time: {end-start: .2f}s")
+        logger.debug(f"추출한 장소: {post_places}")
         # 프론트에 보낼 장소 정보
         return jsonify({'status':'success', 'results': post_places, 'show_ad': show_ad, 'ad_score':earned_score}), 200
 
@@ -381,6 +380,7 @@ async def check_ocr_place(url=""):
     
 def save_places_to_db(url_id, new_places = []): 
     try :
+        saved_places = []
         for p_info in new_places:
             place = Place.query.filter(Place.gid == p_info['gid']).first()
 
@@ -414,12 +414,29 @@ def save_places_to_db(url_id, new_places = []):
                 db.session.add(url_place)
                 
                 logger.info(f"[DB] New link created: URL {url_id} <-> Place {place.id}")
+
+            place_data = {
+                      "id": place.id,
+                      "name": place.name,
+                      "address": place.address,
+                      "latitude": place.latitude,
+                      "longitude": place.longitude,
+                      "category": place.category,
+                      "rating_avg": place.rating_avg,
+                      "rating_count": place.rating_count,
+                      "photo": get_full_photo_url(place.photo)
+                  }
+            logger.debug(f"장소 데이터: {place_data}")
+            saved_places.append(place_data)   # append로 누적
+
         db.session.commit()
         logger.info("DB 저장 완료")
-      
+        return saved_places
+
     except Exception as e:
         db.session.rollback()
         logger.error(f"DB 저장 실패: {e}")
+        return []
 
 def extract_shortcode(url):
     pattern = r'/(p|reel|reels|tv)/([^/?#&]+)'
@@ -431,6 +448,7 @@ def extract_shortcode(url):
         return post_type, shortcode
     return None, None
 
+# 저장되어 있는 장소인지 확인
 def get_new_unique_places(existing_places, new_places):
     existing_keys = {
         f"{p.get('gid', '')}" 
