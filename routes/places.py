@@ -7,7 +7,7 @@ user_places_bp = Blueprint("saved_places", __name__)
 from services.my_logger import get_my_logger
 logger = get_my_logger(__name__)
 
-@user_places_bp.route("/places", methods=["POST"])
+@user_places_bp.route("/places", methods=["POST"], strict_slashes=False)
 @jwt_required()
 def save_user_places():
     """
