@@ -2,12 +2,12 @@ from flask import Blueprint, request, jsonify, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models import db, Place, SavedPlace, SavedSeq
-user_places_bp = Blueprint("saved_places", __name__, url_prefix='/places')
+user_places_bp = Blueprint("saved_places", __name__)
 
 from services.my_logger import get_my_logger
 logger = get_my_logger(__name__)
 
-@user_places_bp.route("/", methods=["POST"])
+@user_places_bp.route("/places", methods=["POST"])
 @jwt_required()
 def save_user_places():
     """
@@ -42,7 +42,7 @@ def save_user_places():
     """
 
     try:
-        user_id = int(get_jwt_identity())
+        user_id = get_jwt_identity()
         if not user_id:
             return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
         
