@@ -1,13 +1,12 @@
-# services/browser_manager.py (새 파일)
 import asyncio
 from playwright.async_api import async_playwright
-
-browser_sem = asyncio.Semaphore(2)
 
 class BrowserManager:
     def __init__(self):
         self.playwright = None
         self.browser = None
+        self._contexts = set()  # 열린 컨텍스트 추적
+        self._sem = asyncio.Semaphore(2)  # 동시 컨텍스트 2개 제한
 
     async def start(self):
         if self.browser is not None:
@@ -25,16 +24,34 @@ class BrowserManager:
         print("✅ 브라우저 준비 완료")
 
     async def new_context(self, **kwargs):
-        return await self.browser.new_context(
+        await self._sem.acquire()  # 동시 2개 제한
+        context = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Linux; Android 10; SM-G981B)...",
             **kwargs
         )
+        self._contexts.add(context)
+        return context
+
+    async def close_context(self, context):
+        """컨텍스트 닫고 목록에서 제거"""
+        try:
+            if context in self._contexts:
+                self._contexts.discard(context)
+                await context.close()
+        except Exception as e:
+            print(f"컨텍스트 닫기 실패: {e}")
+        finally:
+            self._sem.release()  # 세마포어 반환
 
     async def stop(self):
-        if self.browser: await self.browser.close()
-        if self.playwright: await self.playwright.stop()
+        # 열린 컨텍스트 전부 닫기
+        for ctx in list(self._contexts):
+            await self.close_context(ctx)
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
         self.browser = None
         print("🛑 브라우저 종료")
 
-# 전역 인스턴스
 global_browser_manager = BrowserManager()

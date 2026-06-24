@@ -160,7 +160,7 @@ async def get_caption_no_login(post_url: str):
         logger.error(f"Playwright 에러: {e}")
     finally:
         await page.close()
-        await context.close()  
+        await global_browser_manager.close_context(context)
 
     return caption_text
 
