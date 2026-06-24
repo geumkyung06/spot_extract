@@ -284,7 +284,8 @@ async def analyze_instagram():
 
 def check_db_have_url(url=""):
     target_url = db.session.query(InstaUrl).filter(InstaUrl.url.like(f"%{url}%")).first()
-    
+    logger.debug(f"찾는 shortcode: {url}, 매칭된 URL: {target_url.url if target_url else None}")  # ← 추가
+
     # URL이 없으면 즉시 빈 리스트 반환
     if not target_url:
         return 0, "", []
