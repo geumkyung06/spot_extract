@@ -1,3 +1,5 @@
+import os
+import pymysql
 from flask import Blueprint, jsonify, request, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
@@ -13,6 +15,18 @@ logger = get_my_logger(__name__)
 알림 읽음 처리 POST /notifications/read
 안 읽은 알람 개수 GET /notifications/unread-count
 """
+
+def get_db():
+    if 'db' not in g:
+        g.db = pymysql.connect(
+            host=os.getenv('DB_HOST'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            database=os.getenv('DB_NAME'),
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+    return g.db
 
 @bp.route('/push-tokens', methods=['POST'])
 @jwt_required()
@@ -192,16 +206,92 @@ def delete_push_token():
         db.session.rollback()
         logger.error(f"토큰 비활성화 실패: {e}")
         return jsonify({"error": "서버 오류가 발생했습니다."}), 500
-    
-'''@bp.route('/notifications/read', methods=['POST'])
+
+# 알림창 들어갈 때 전체 읽음으로 변경
+@bp.route('/notifications/read', methods=['POST'])
 @jwt_required()
-def cheack_read_notification():
-    return jsonify({"message": "알림 읽음"}), 200
+def check_read_notification():
+    user_id = get_jwt_identity()
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("""
+            UPDATE notifications
+            SET is_read = TRUE
+            WHERE user_id = %s AND is_read = FALSE
+        """, (user_id,))
+
+        db.commit()
+        return jsonify({"message": "읽음 처리 완료"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"읽음 처리 실패: {e}")
+        return jsonify({"error": "서버 오류"}), 500
+    finally:
+        cursor.close()
+
 
 @bp.route('/notifications/unread-count', methods=['GET'])
 @jwt_required()
 def read_unread_notification():
-    unread_count = 0
-    return jsonify({"message": f"안 읽은 알림 개수: {unread_count}개"}), 200'''
+    user_id = get_jwt_identity()
 
+    db = get_db()
+    cursor = db.cursor()
 
+    try:
+        cursor.execute("""
+            SELECT COUNT(*) AS cnt
+            FROM notifications
+            WHERE user_id = %s AND is_read = FALSE
+        """, (user_id,))
+        row = cursor.fetchone()
+        unread_count = row['cnt'] if row else 0
+
+        return jsonify({"unread_count": unread_count}), 200
+
+    except Exception as e:
+        logger.error(f"미읽음 조회 실패: {e}")
+        return jsonify({"error": "서버 오류"}), 500
+    finally:
+        cursor.close()
+
+# GET /notification >> 알림창에 알림정보들 떠야함 - user_id가 받은 알림들만
+# friend_id, 프로필사진, spot_id, spot_nickname, 한줄소개 필요
+@bp.route('', methods=['GET'])
+@jwt_required()
+def check_notification():
+    user_id = get_jwt_identity()
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT 
+                n.id            AS notification_id,
+                n.type,
+                n.is_read,
+                n.created_at,
+                m.id            AS sender_id,
+                m.photo,
+                m.spot_id,
+                m.spot_nickname,
+                m.one_line
+            FROM notifications n
+            JOIN kakao_mem m ON m.id = n.sender_id
+            WHERE n.user_id = %s
+            ORDER BY n.created_at DESC
+        """, (user_id,))
+
+        rows = cursor.fetchall()
+        return jsonify({"notifications": rows}), 200
+
+    except Exception as e:
+        logger.error(f"알림 조회 실패: {e}")
+        return jsonify({"error": "서버 오류"}), 500
+    finally:
+        cursor.close()
