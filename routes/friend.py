@@ -86,7 +86,7 @@ def get_friends_list():
         500:
           description: 서버 에러
       """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -169,7 +169,7 @@ def delete_friend_unfollow(friend_id):
       404:
         description: 친구 관계가 없거나 이미 삭제됨
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     if not user_id:
         return jsonify({"message": "user_id required"}), 400
@@ -228,7 +228,7 @@ def post_friend_report(friend_id):
         description: 이미 신고한 사용자
     """
     data = request.get_json()
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     reason = data.get('reason')
 
     if not user_id or not reason:
@@ -286,7 +286,7 @@ def post_friend_block(friend_id):
       500:
         description: 서버 에러
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     if not user_id:
         return jsonify({"message": "user_id is required"}), 400
@@ -346,7 +346,7 @@ def post_friend_unblock(friend_id):
       500:
         description: 서버 에러
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     if not user_id:
         return jsonify({"message": "user_id is required"}), 400
@@ -407,7 +407,7 @@ def post_request_follow(friend_id):
       500:
         description: 서버 에러
     """
-    user_id = get_jwt_identity() 
+    user_id = int(get_jwt_identity())
 
     print(f"User ID: {user_id} (Type: {type(user_id)})")
     print(f"Friend ID: {friend_id} (Type: {type(friend_id)})")
@@ -440,8 +440,16 @@ def post_request_follow(friend_id):
         cursor.execute(waiting_query, (user_id, friend_id))
         
         db.commit()
-
         # 푸시 알림
+
+        # 알림 저장
+        noti_query = """
+            INSERT INTO notifications (user_id, sender_id, type, created_at)
+            VALUES (%s, %s, 'follow_request', NOW())
+        """
+        cursor.execute(noti_query, (friend_id, user_id))
+        db.commit()
+  
         # 알림 메시지용: "OOO님이 팔로우를 요청했습니다"
         cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (user_id,))
         my_info = cursor.fetchone()
@@ -509,7 +517,7 @@ def post_accept_follow(friend_id):
       500:
         description: 서버 에러
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     
     db = get_db()
     cursor = db.cursor()
@@ -535,9 +543,17 @@ def post_accept_follow(friend_id):
         """
         cursor.execute(waiting_query, (friend_id, user_id))
 
+        # 푸시 알림
         db.commit()
 
-        # 푸시 알림
+        # 알림 저장 (수신자: 요청 보낸 사람 friend_id, 발신자: 수락한 나 user_id)
+        noti_query = """
+            INSERT INTO notifications (user_id, sender_id, type, created_at)
+            VALUES (%s, %s, 'follow_accept', NOW())
+        """
+        cursor.execute(noti_query, (friend_id, user_id))
+        db.commit()
+        
         # 알림 메시지용: "OOO님이 팔로우를 수락했습니다"
         cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (friend_id,))
         my_info = cursor.fetchone()
@@ -604,7 +620,7 @@ def post_decline_follow(friend_id):
       500:
         description: 서버 에러
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     
     db = get_db()
     cursor = db.cursor()
