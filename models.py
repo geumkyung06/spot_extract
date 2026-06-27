@@ -153,3 +153,15 @@ class Device(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+class Notification(db.Model):
+    __tablename__ = 'notifications'
+
+    id            = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    user_id       = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id', ondelete='CASCADE'), nullable=False)  # 수신자
+    sender_id     = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id', ondelete='CASCADE'), nullable=False)  # 발신자
+    
+    type          = db.Column(db.String(50), nullable=False)  # 'follow_request' | 'follow_accept' | 'bookmark'
+    is_read       = db.Column(db.Boolean, default=False, nullable=False)
+    
+    created_at    = db.Column(db.DateTime, default=datetime.now)
