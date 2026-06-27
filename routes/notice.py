@@ -261,7 +261,7 @@ def read_unread_notification():
 
 # GET /notification >> 알림창에 알림정보들 떠야함 - user_id가 받은 알림들만
 # friend_id, 프로필사진, spot_id, spot_nickname, 한줄소개 필요
-@bp.route('', methods=['GET'])
+@bp.route('/details', methods=['GET'])
 @jwt_required()
 def check_notification():
     user_id = get_jwt_identity()
