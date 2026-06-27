@@ -211,6 +211,26 @@ def delete_push_token():
 @bp.route('/notifications/read', methods=['POST'])
 @jwt_required()
 def check_read_notification():
+    """
+    알림 전체 읽음 처리
+    ---
+    tags:
+      - Notification
+    summary: 알림창 진입 시 전체 읽음 처리
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: 읽음 처리 완료
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "읽음 처리 완료"
+      500:
+        description: 서버 오류
+    """
     user_id = get_jwt_identity()
 
     db = get_db()
@@ -237,6 +257,26 @@ def check_read_notification():
 @bp.route('/notifications/unread-count', methods=['GET'])
 @jwt_required()
 def read_unread_notification():
+    """
+    미읽음 알림 개수 조회
+    ---
+    tags:
+      - Notification
+    summary: 앱 실행 시 뱃지 숫자용 미읽음 알림 개수 반환
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: 미읽음 개수 반환
+        schema:
+          type: object
+          properties:
+            unread_count:
+              type: integer
+              example: 3
+      500:
+        description: 서버 오류
+    """
     user_id = get_jwt_identity()
 
     db = get_db()
@@ -261,9 +301,58 @@ def read_unread_notification():
 
 # GET /notification >> 알림창에 알림정보들 떠야함 - user_id가 받은 알림들만
 # friend_id, 프로필사진, spot_id, spot_nickname, 한줄소개 필요
-@bp.route('/details', methods=['GET'])
+@bp.route('/notifications/details', methods=['GET'])
 @jwt_required()
 def check_notification():
+    """
+    알림 목록 조회
+    ---
+    tags:
+      - Notification
+    summary: 로그인 유저가 받은 알림 목록 반환
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: 알림 목록
+        schema:
+          type: object
+          properties:
+            notifications:
+              type: array
+              items:
+                type: object
+                properties:
+                  notification_id:
+                    type: integer
+                    example: 1
+                  type:
+                    type: string
+                    example: "follow_request"
+                  is_read:
+                    type: boolean
+                    example: false
+                  created_at:
+                    type: string
+                    example: "2026-06-27 11:00:00"
+                  sender_id:
+                    type: integer
+                    example: 42
+                  photo:
+                    type: string
+                    example: "https://..."
+                  spot_id:
+                    type: string
+                    example: "onlyDelicious"
+                  spot_nickname:
+                    type: string
+                    example: "맛있는 것만 공유해요"
+                  one_line:
+                    type: string
+                    example: "안녕하세요"
+      500:
+        description: 서버 오류
+    """
     user_id = get_jwt_identity()
 
     db = get_db()
