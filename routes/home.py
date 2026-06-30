@@ -84,7 +84,7 @@ def get_all_pins():
       500:
         description: 서버 오류
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
 
@@ -297,7 +297,7 @@ def get_all_places():
       401:
         description: 인증 실패 (JWT 토큰 누락 또는 만료)
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -508,7 +508,7 @@ def get_friend_pins(friend_id):
       500:
         description: 서버 오류
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -697,7 +697,7 @@ def get_friend_places(friend_id):
                 description: "현재 위치와의 거리 (km)"
                 example: 1.25
     """    
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     # 현재 위치 파라미터 가져오기
     try:
@@ -867,7 +867,7 @@ def get_friend_comments(friend_id):
     """
     
     # 내 아이디 (장소 좋아요 여부 체크용)
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     
     sort = request.args.get('sort', 'latest') 
 
@@ -987,7 +987,7 @@ def get_my_pins():
       500:
         description: 서버 오류
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -1185,7 +1185,7 @@ def get_my_places():
                       type: string
                       description: "친구 프로필 이미지 URL"
     """
-    user_id = 10
+    user_id = int(get_jwt_identity())
 
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -1381,7 +1381,7 @@ def post_place_like(place_id):
       500:
         description: 서버 내부 에러
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     
     place = Place.query.get(place_id)
     if not place:

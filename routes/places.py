@@ -42,7 +42,7 @@ def save_user_places():
     """
 
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         if not user_id:
             return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
         

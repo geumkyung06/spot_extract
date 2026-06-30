@@ -86,7 +86,7 @@ def save_push_token():
       500:
         description: 서버 내부 에러 (DB 저장 실패 등)
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     
     if not user_id :
         return jsonify({'error': 'user_id is required'}), 400
@@ -165,7 +165,7 @@ def delete_push_token():
       500:
         description: 서버 내부 에러
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     if not user_id:
         return jsonify({'error': 'user_id is required'}), 400
@@ -231,7 +231,7 @@ def check_read_notification():
       500:
         description: 서버 오류
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     db = get_db()
     cursor = db.cursor()
@@ -277,7 +277,7 @@ def read_unread_notification():
       500:
         description: 서버 오류
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     db = get_db()
     cursor = db.cursor()
@@ -353,7 +353,7 @@ def check_notification():
       500:
         description: 서버 오류
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
 
     db = get_db()
     cursor = db.cursor()
@@ -371,7 +371,7 @@ def check_notification():
                 m.spot_nickname,
                 m.one_line
             FROM notifications n
-            JOIN kakao_mem m ON m.id = n.sender_id
+            LEFT JOIN kakao_mem m ON m.id = n.sender_id
             WHERE n.user_id = %s
             ORDER BY n.created_at DESC
         """, (user_id,))

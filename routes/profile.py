@@ -56,7 +56,7 @@ def check_spot_id():
         description: "인증 실패 (토큰 누락 및 만료)"
     """
     # get. spot_id
-    user_id = get_jwt_identity() 
+    user_id = int(get_jwt_identity())
     spot_id = request.args.get('spot_id')
 
     if not user_id:
