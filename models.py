@@ -157,11 +157,20 @@ class Device(db.Model):
 class Notification(db.Model):
     __tablename__ = 'notifications'
 
-    id            = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-    user_id       = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id', ondelete='CASCADE'), nullable=False)  # 수신자
-    sender_id     = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id', ondelete='CASCADE'), nullable=False)  # 발신자
-    
-    type          = db.Column(db.String(50), nullable=False)  # 'follow_request' | 'follow_accept' | 'bookmark'
-    is_read       = db.Column(db.Boolean, default=False, nullable=False)
-    
-    created_at    = db.Column(db.DateTime, default=datetime.now)
+    id             = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    type           = db.Column(db.String(50), nullable=False)  # 'follow_request' | 'follow_accept'
+    user_id        = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id', ondelete='CASCADE'), nullable=False)  # 수신자
+    sender_id      = db.Column(db.BigInteger, db.ForeignKey('kakao_mem.id', ondelete='CASCADE'), nullable=True)   # 발신자
+
+    target_id      = db.Column(db.BigInteger, nullable=True)
+    target_type    = db.Column(db.String(30), nullable=True)
+
+    title          = db.Column(db.String(100), nullable=False)
+    body           = db.Column(db.String(255), nullable=True)
+    route          = db.Column(db.String(100), nullable=True)
+    cta            = db.Column(db.String(50), nullable=True)
+
+    is_read        = db.Column(db.Boolean, default=False, nullable=False)
+    is_aggregated  = db.Column(db.Boolean, default=False, nullable=False)
+
+    created_at     = db.Column(db.DateTime, default=datetime.now, nullable=False)
