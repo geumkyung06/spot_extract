@@ -6,8 +6,8 @@ from playwright.async_api import async_playwright
 from konlpy.tag import Kkma # 좀 더 가벼운 모델로 변경
 from collections import Counter
 from openai import OpenAI
-from services.my_logger import get_my_logger
-from services.browser_manager import global_browser_manager
+from my_logger import get_my_logger
+from browser_manager import global_browser_manager
 
 logger = get_my_logger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -51,18 +51,19 @@ async def get_caption_no_login(post_url: str):
     success_step = "failed"
 
     await global_browser_manager.start()
-    context = await global_browser_manager.new_context(
-        locale="ko-KR",
-        viewport={"width": 360, "height": 800}
-    )
-    page = await context.new_page()
-
-    await page.route("**/*", lambda route:
-        route.abort() if route.request.resource_type in ["image", "media", "font"]
-        else route.continue_()
-    )
 
     try:
+        context = await global_browser_manager.new_context(
+        locale="ko-KR",
+        viewport={"width": 360, "height": 800}
+        )
+        page = await context.new_page()
+
+        await page.route("**/*", lambda route:
+            route.abort() if route.request.resource_type in ["image", "media", "font"]
+            else route.continue_()
+        )
+
         logger.debug("페이지 goto 시작")
         await page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
         logger.debug("페이지 goto 완료")
@@ -159,8 +160,13 @@ async def get_caption_no_login(post_url: str):
     except Exception as e:
         logger.error(f"Playwright 에러: {e}")
     finally:
-        await page.close()
-        await global_browser_manager.close_context(context)
+        if page:
+            try:
+                await asyncio.wait_for(page.close(), timeout=10)
+            except Exception as e:
+                logger.error(f"page close 실패: {e}")
+        if context:
+            await global_browser_manager.close_context(context)
 
     return caption_text
 
