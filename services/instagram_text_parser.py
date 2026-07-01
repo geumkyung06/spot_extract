@@ -6,8 +6,8 @@ from playwright.async_api import async_playwright
 from konlpy.tag import Kkma # 좀 더 가벼운 모델로 변경
 from collections import Counter
 from openai import OpenAI
-from my_logger import get_my_logger
-from browser_manager import global_browser_manager
+from services.my_logger import get_my_logger
+from services.browser_manager import global_browser_manager
 
 logger = get_my_logger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
