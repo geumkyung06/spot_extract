@@ -1,5 +1,6 @@
 import requests
 import threading
+from models import db, Device, Notification
 from services.my_logger import get_my_logger
 
 logger = get_my_logger(__name__)
@@ -31,38 +32,42 @@ def send_expo_push_notification(token, title, body):
     except Exception as e:
         logger.error(f"[푸시 발송 실패] {str(e)}")
 
-
-def send_extraction_notification(user_id, cursor, db, status: str, caption: str, place_count: int = 0):
+def send_extraction_notification(user_id, status: str, caption: str, place_count: int = 0):
     """status: 'success' | 'failed'"""
     title = "추출 완료" if status == "success" else "추출 실패"
     noti_caption = (caption or "").strip('\n')[:15].rstrip()
 
     if status == "success":
-        db_title = "추출 완료"
         db_body = f"요청하신 게시물 추출이 완료되었습니다.\n{noti_caption}..."
         push_body = f"요청하신 게시물에서 {place_count}개의 장소를 추출했습니다. {noti_caption}...".rstrip()
     else:
-        db_title = "추출 실패"
         db_body = f"게시물에서 장소 추출을 실패했습니다.\n{noti_caption}..."
         push_body = f"게시물에서 장소 추출을 실패했습니다. {noti_caption}...".rstrip()
 
-    noti_query = """
-        INSERT INTO notifications (user_id, sender_id, type, title, body, is_read, created_at)
-        VALUES (%s, NULL, 'instagram_extract', %s, %s, 0, NOW())
-    """
-    cursor.execute(noti_query, (user_id, db_title, db_body))
-    db.commit()
+    try:
+        new_noti = Notification(
+            user_id=user_id,
+            sender_id=None,
+            type='instagram_extract',
+            title=title,
+            body=db_body,
+            is_read=False
+        )
+        db.session.add(new_noti)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        raise
 
-    token_query = """
-        SELECT expo_push_token FROM devices 
-        WHERE user_id = %s AND is_active = 1 AND expo_push_token IS NOT NULL
-    """
-    cursor.execute(token_query, (user_id,))
-    target_device = cursor.fetchone()
+    target_device = db.session.query(Device).filter(
+        Device.user_id == user_id,
+        Device.is_active == True,
+        Device.expo_push_token.isnot(None)
+    ).first()
 
-    if target_device and target_device['expo_push_token']:
+    if target_device and target_device.expo_push_token:
         thr = threading.Thread(
             target=send_expo_push_notification,
-            args=(target_device['expo_push_token'], title, push_body)
+            args=(target_device.expo_push_token, title, push_body)
         )
         thr.start()
