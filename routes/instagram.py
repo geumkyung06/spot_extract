@@ -6,6 +6,7 @@ import time
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import re
+import threading
 
 
 from services.instagram_text_parser import get_caption_no_login, split_caption, extract_places_with_gpt, is_place_post
@@ -14,6 +15,7 @@ from services.check_place import process_places
 from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad
 from services.my_logger import get_my_logger
 from services.utils import get_full_photo_url
+from services.push_notification import send_extraction_notification
 
 
 # models 파일에서 정의한 클래스들 임포트
@@ -171,8 +173,8 @@ async def analyze_instagram():
               type: string
     """ 
     try:
-        #user_id = 123456 #더미
-        user_id = get_jwt_identity() 
+        user_id = int(get_jwt_identity())
+        cursor = db.cursor()
 
         if not user_id:
             return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
@@ -260,11 +262,12 @@ async def analyze_instagram():
                 
                 # 겹치는 장소인지 확인
                 add_places = get_new_unique_places(post_places, search_places)
-                logger.debug(f"합치기 전 장소들: {post_places}") 
                 post_places.extend(add_places)
-                logger.debug(f"post 장소들: {post_places}")
             else:
-                handle_fail_count(user_id) 
+                handle_fail_count(user_id)
+                # 게시물에서 장소 추출을 실패했습니다
+                # 추출 알림
+                send_extraction_notification(user_id, cursor, db, 'failed', caption, 0)
                 return jsonify({'status':'failed', 'message': "can not found places"}), 404
 
         redis_client.delete(f"fail_count:{user_id}")
@@ -274,6 +277,11 @@ async def analyze_instagram():
         end = time.time()
         logger.debug(f"time: {end-start: .2f}s")
         logger.debug(f"추출한 장소: {post_places}")
+
+        # 추출 알림
+        # 알림 저장
+        send_extraction_notification(user_id, cursor, db, 'success', caption, len(post_places))
+
         # 프론트에 보낼 장소 정보
         return jsonify({'status':'success', 'results': post_places, 'show_ad': show_ad, 'ad_score':earned_score}), 200
 
