@@ -287,7 +287,7 @@ async def analyze_instagram():
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error: {e}")
+        logger.exception("analyze_instagram 처리 중 오류")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 def check_db_have_url(url=""):
