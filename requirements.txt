@@ -9,10 +9,9 @@ boto3
 
 # Database Drivers
 PyMySQL
-mysql-connector-python
+#mysql-connector-python
 cryptography
 redis
-cryptography
 
 # Environment Variables
 python-dotenv
@@ -25,9 +24,9 @@ google
 
 # Web Scraping & Parsing
 playwright
-beautifulsoup4
+#beautifulsoup4
 aiohttp
-Pillow
+#Pillow
 
 #async
 asgiref
@@ -38,4 +37,5 @@ async
 konlpy
 
 #geo
-geopandas
+geopandaspsutil
+#geopandas
