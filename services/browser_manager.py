@@ -7,6 +7,7 @@ class BrowserManager:
         self.browser = None
         self._contexts = set()  # 열린 컨텍스트 추적
         self._sem = asyncio.Semaphore(2)  # 동시 컨텍스트 2개 제한
+        
 
     async def start(self):
         if self.browser is not None:
@@ -19,6 +20,15 @@ class BrowserManager:
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--disable-translate",
+                "--metrics-recording-only",
+                "--mute-audio",
+                "--single-process",              # renderer/GPU/zygote 프로세스 분리 안 함 → PID/메모리 크게 절감
+                "--js-flags=--max-old-space-size=128",
             ]
         )
         print("✅ 브라우저 준비 완료")
@@ -59,7 +69,7 @@ class BrowserManager:
             pass
         self.browser = None
         self._contexts.clear()
-        self._sem = asyncio.Semaphore(2)  # permit 누수 전부 초기화
+        self._sem = asyncio.Semaphore(1)  # permit 누수 전부 초기화. 일단 안정성 챙기기
         await self.start()
 
     async def stop(self):
