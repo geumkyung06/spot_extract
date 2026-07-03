@@ -174,7 +174,6 @@ async def analyze_instagram():
     """ 
     try:
         user_id = int(get_jwt_identity())
-        cursor = db.cursor()
 
         if not user_id:
             return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
@@ -267,7 +266,7 @@ async def analyze_instagram():
                 handle_fail_count(user_id)
                 # 게시물에서 장소 추출을 실패했습니다
                 # 추출 알림
-                send_extraction_notification(user_id, cursor, db, 'failed', caption, 0)
+                send_extraction_notification(user_id, 'failed', caption, 0)
                 return jsonify({'status':'failed', 'message': "can not found places"}), 404
 
         redis_client.delete(f"fail_count:{user_id}")
@@ -280,7 +279,7 @@ async def analyze_instagram():
 
         # 추출 알림
         # 알림 저장
-        send_extraction_notification(user_id, cursor, db, 'success', caption, len(post_places))
+        send_extraction_notification(user_id, 'success', caption, len(post_places))
 
         # 프론트에 보낼 장소 정보
         return jsonify({'status':'success', 'results': post_places, 'show_ad': show_ad, 'ad_score':earned_score}), 200
