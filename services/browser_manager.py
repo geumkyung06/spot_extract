@@ -30,7 +30,6 @@ class BrowserManager:
                 "--disable-translate",
                 "--metrics-recording-only",
                 "--mute-audio",
-                "--single-process",              # renderer/GPU/zygote 프로세스 분리 안 함 → PID/메모리 크게 절감
                 "--js-flags=--max-old-space-size=128",
             ]
         )
@@ -42,14 +41,18 @@ class BrowserManager:
             if not self.browser or not self.browser.is_connected():
                 logger.info("⚠️ 브라우저 연결 끊김 감지, 재시작")
                 await self.restart()
-
-            context = await asyncio.wait_for(
-                self.browser.new_context(
-                    user_agent="Mozilla/5.0 (Linux; Android 10; SM-G981B)...",
-                    **kwargs
-                ),
-                timeout=15
-            )
+            try:
+                context = await asyncio.wait_for(
+                    self.browser.new_context(
+                        user_agent="Mozilla/5.0 (Linux; Android 10; SM-G981B)...",
+                        **kwargs
+                    ),
+                    timeout=15
+                )
+            except asyncio.TimeoutError:
+                logger.warning("⚠️ new_context 타임아웃 - 브라우저 응답 없음, 강제 재시작")
+                await self.restart()   # 다음 요청은 새 브라우저로 시작하게끔
+                raise
         except Exception:
             self._sem.release()  # restart 실패든 new_context 실패든 무조건 반환
             raise
@@ -62,7 +65,7 @@ class BrowserManager:
                 self._contexts.discard(context)
                 await asyncio.wait_for(context.close(), timeout=10)
         except Exception as e:
-            print(f"컨텍스트 닫기 실패: {e}")
+            logger.info(f"컨텍스트 닫기 실패: {e}")
         finally:
             self._sem.release()
 
