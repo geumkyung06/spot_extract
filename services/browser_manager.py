@@ -12,7 +12,6 @@ class BrowserManager:
         self._contexts = set()  # 열린 컨텍스트 추적
         self._sem = asyncio.Semaphore(1)  # 동시 컨텍스트 제한. 메모리 문제 해결되면 늘리기
         
-
     async def start(self):
         if self.browser is not None:
             return
@@ -71,12 +70,14 @@ class BrowserManager:
             self._sem.release()
 
     def _force_kill_chromium(self):
-        """정상 종료가 안 될 때 OS 레벨에서 강제로 프로세스 죽이기"""
         killed = 0
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 cmdline = ' '.join(proc.info.get('cmdline') or [])
-                if 'headless_shell' in cmdline or 'chrome' in cmdline.lower():
+                # Playwright driver(run-driver)는 제외하고 Chromium만 타겟팅
+                if 'run-driver' in cmdline:
+                    continue
+                if 'headless_shell' in cmdline or ('chrome' in cmdline.lower() and 'node' not in cmdline.lower()):
                     logger.warning(f"강제 종료: PID {proc.info['pid']}")
                     proc.kill()
                     killed += 1
