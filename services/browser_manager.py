@@ -1,5 +1,8 @@
 import asyncio
 from playwright.async_api import async_playwright
+from services.my_logger import get_my_logger
+
+logger = get_my_logger(__name__)
 
 class BrowserManager:
     def __init__(self):
@@ -31,7 +34,7 @@ class BrowserManager:
                 "--js-flags=--max-old-space-size=128",
             ]
         )
-        print("✅ 브라우저 준비 완료")
+        logger.info("✅ 브라우저 준비 완료")
 
     async def new_context(self, **kwargs):
         await self._sem.acquire()
@@ -61,7 +64,7 @@ class BrowserManager:
 
     async def restart(self):
         """브라우저가 응답 없을 때 강제 재생성"""
-        print("⚠️ 브라우저 강제 재시작")
+        logger.info("⚠️ 브라우저 강제 재시작")
         try:
             if self.browser:
                 await self.browser.close()
@@ -80,6 +83,6 @@ class BrowserManager:
         if self.playwright:
             await self.playwright.stop()
         self.browser = None
-        print("🛑 브라우저 종료")
+        logger.info("🛑 브라우저 종료")
 
 global_browser_manager = BrowserManager()
