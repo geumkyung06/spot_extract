@@ -1,4 +1,5 @@
 import asyncio
+import psutil
 from playwright.async_api import async_playwright
 from services.my_logger import get_my_logger
 
@@ -51,7 +52,7 @@ class BrowserManager:
                 )
             except asyncio.TimeoutError:
                 logger.warning("⚠️ new_context 타임아웃 - 브라우저 응답 없음, 강제 재시작")
-                await self.restart()   # 다음 요청은 새 브라우저로 시작하게끔
+                await self.restart()
                 raise
         except Exception:
             self._sem.release()  # restart 실패든 new_context 실패든 무조건 반환
@@ -65,20 +66,45 @@ class BrowserManager:
                 self._contexts.discard(context)
                 await asyncio.wait_for(context.close(), timeout=10)
         except Exception as e:
-            logger.info(f"컨텍스트 닫기 실패: {e}")
+            logger.error(f"컨텍스트 닫기 실패: {e}")
         finally:
             self._sem.release()
+
+    def _force_kill_chromium(self):
+        """정상 종료가 안 될 때 OS 레벨에서 강제로 프로세스 죽이기"""
+        killed = 0
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = ' '.join(proc.info.get('cmdline') or [])
+                if 'headless_shell' in cmdline or 'chrome' in cmdline.lower():
+                    logger.warning(f"강제 종료: PID {proc.info['pid']}")
+                    proc.kill()
+                    killed += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        logger.info(f"강제 종료된 프로세스 수: {killed}")
 
     async def restart(self):
         """브라우저가 응답 없을 때 강제 재생성"""
         logger.info("⚠️ 브라우저 강제 재시작")
+
         try:
             if self.browser:
-                await self.browser.close()
-        except Exception:
-            pass
+                await asyncio.wait_for(self.browser.close(), timeout=5)
+        except Exception as e:
+            logger.warning(f"정상 close 실패/타임아웃({e}), 프로세스 강제 종료 시도")
+            self._force_kill_chromium()
+
+        try:
+            if self.playwright:
+                await asyncio.wait_for(self.playwright.stop(), timeout=5)
+        except Exception as e:
+            logger.warning(f"playwright stop 실패/타임아웃: {e}")
+
         self.browser = None
+        self.playwright = None
         self._contexts.clear()
+
         await self.start()
 
     async def stop(self):
