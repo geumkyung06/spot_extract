@@ -26,7 +26,7 @@ google
 playwright
 #beautifulsoup4
 aiohttp
-#Pillow
+Pillow
 
 #async
 asgiref
@@ -37,5 +37,6 @@ async
 konlpy
 
 #geo
-geopandaspsutil
-#geopandas
+geopandas
+psutil
+py-spy
