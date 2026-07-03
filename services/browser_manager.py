@@ -9,7 +9,7 @@ class BrowserManager:
         self.playwright = None
         self.browser = None
         self._contexts = set()  # 열린 컨텍스트 추적
-        self._sem = asyncio.Semaphore(2)  # 동시 컨텍스트 2개 제한
+        self._sem = asyncio.Semaphore(1)  # 동시 컨텍스트 제한. 메모리 문제 해결되면 늘리기
         
 
     async def start(self):
@@ -39,6 +39,10 @@ class BrowserManager:
     async def new_context(self, **kwargs):
         await self._sem.acquire()
         try:
+            if not self.browser or not self.browser.is_connected():
+                logger.info("⚠️ 브라우저 연결 끊김 감지, 재시작")
+                await self.restart()
+
             context = await asyncio.wait_for(
                 self.browser.new_context(
                     user_agent="Mozilla/5.0 (Linux; Android 10; SM-G981B)...",
@@ -47,7 +51,7 @@ class BrowserManager:
                 timeout=15
             )
         except Exception:
-            self._sem.release()  # 실패했으면 반드시 permit 반환
+            self._sem.release()  # restart 실패든 new_context 실패든 무조건 반환
             raise
         self._contexts.add(context)
         return context
@@ -72,7 +76,6 @@ class BrowserManager:
             pass
         self.browser = None
         self._contexts.clear()
-        self._sem = asyncio.Semaphore(1)  # permit 누수 전부 초기화. 일단 안정성 챙기기
         await self.start()
 
     async def stop(self):
