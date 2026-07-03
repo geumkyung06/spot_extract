@@ -49,6 +49,9 @@ KOREAN_REGIONS = [
 async def get_caption_no_login(post_url: str):
     caption_text = ""
     success_step = "failed"
+    context = None
+    page = None
+    shortcode = _extract_shortcode_from_url(post_url)
 
     await global_browser_manager.start()
 
@@ -85,7 +88,7 @@ async def get_caption_no_login(post_url: str):
                 
                 if caption_text:
                     success_step = "1-1 (JSON-LD)"
-            logger.debug("1-1 결과: {caption_text[:20] if caption_text else 'None'}")
+            logger.debug(f"1-1 결과: {caption_text[:20] if caption_text else 'None'}")
         except: pass
 
         # 1-2. 정규식(Regex)
@@ -96,13 +99,9 @@ async def get_caption_no_login(post_url: str):
                     r'"edge_media_to_caption"\s*:\s*\{\s*"edges"\s*:\s*\[\s*\{\s*"node"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"',
                     r'"caption"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"'
                 ]
-                for pattern in patterns:
-                    match = re.search(pattern, content)
-                    if match:
-                        raw_text = match.group(1)
-                        caption_text = json.loads(f'"{raw_text}"')
-                        success_step = "1-2 (Regex)"
-                        break
+                caption_text = _find_caption_near_shortcode(content, shortcode, patterns)
+                if caption_text:
+                    success_step = "1-2 (Regex, scoped)"
             except: pass
 
 
@@ -140,22 +139,17 @@ async def get_caption_no_login(post_url: str):
 
             # 2-3. 정규식 
             if not caption_text:
-                try:
-                    content = await page.content() 
-                    reel_pattern = r'"clips_metadata"\s*:\s*\{.*?"caption"\s*:\s*"([^"]+)"'
-                    
-                    match = re.search(reel_pattern, content)
-                    if match:
-                        raw_text = match.group(1)
-                        caption_text = json.loads(f'"{raw_text}"')
-                        success_step = "2-3 (Reels Regex)"
-                except: pass
+                content = await page.content()
+                reel_patterns = [r'"clips_metadata"\s*:\s*\{.*?"caption"\s*:\s*"([^"]+)"']
+                caption_text = _find_caption_near_shortcode(content, shortcode, reel_patterns)
+                if caption_text:
+                    success_step = "2-3 (Reels Regex, scoped)"
             
-            if caption_text:
-                # 성공 시: URL, 성공한 단계, 본문 앞부분 출력
-                logger.info(f"[SUCCESS] {post_url} | Step: {success_step} | Text: {caption_text[:10]}...")
-            else:
-                logger.warning(f"[FAILED] {post_url} | 캡션을 찾지 못했습니다.")
+        if caption_text:
+            # 성공 시: URL, 성공한 단계, 본문 앞부분 출력
+            logger.info(f"[SUCCESS] {post_url} | Step: {success_step} | shortcode: {shortcode} | Text: {caption_text[:10]}...")
+        else:
+            logger.warning(f"[FAILED] {post_url} | 캡션을 찾지 못했습니다.")
 
     except Exception as e:
         logger.error(f"Playwright 에러: {e}")
@@ -217,6 +211,35 @@ def is_korean_content(text, threshold=0.1):
 
 def list_chunk(lst, n):
     return [lst[i:i+n] for i in range(0, len(lst), n)]
+
+def _extract_shortcode_from_url(url: str) -> str:
+    """URL에서 shortcode만 뽑기"""
+    match = re.search(r'/(?:p|reel|reels|tv)/([^/?#&]+)', url)
+    return match.group(1) if match else ""
+
+def _find_caption_near_shortcode(content: str, shortcode: str, patterns: list) -> str:
+    """전체 페이지가 아니라, 해당 shortcode 주변 블록에서만 캡션 검색"""
+    if not shortcode:
+        return ""
+
+    shortcode_pattern = re.compile(r'"shortcode"\s*:\s*"' + re.escape(shortcode) + r'"')
+    sc_match = shortcode_pattern.search(content)
+
+    if not sc_match:
+        logger.debug(f"[DEBUG] 페이지 내 shortcode({shortcode}) 위치를 못 찾음")
+        return ""
+
+    # shortcode 위치 기준 앞뒤 3000자 윈도우만 탐색
+    start = max(0, sc_match.start() - 3000)
+    end = min(len(content), sc_match.end() + 3000)
+    window = content[start:end]
+
+    for pattern in patterns:
+        match = re.search(pattern, window)
+        if match:
+            raw_text = match.group(1)
+            return json.loads(f'"{raw_text}"')
+    return ""
 
 def check_rulebase_place(list_caption: list): 
     list_caption_with_ratio = [] # 이중리스트, [ratio, 문장]
