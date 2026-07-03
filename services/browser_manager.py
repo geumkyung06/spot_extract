@@ -11,12 +11,13 @@ class BrowserManager:
         self.browser = None
         self._contexts = set()  # 열린 컨텍스트 추적
         self._sem = asyncio.Semaphore(1)  # 동시 컨텍스트 제한. 메모리 문제 해결되면 늘리기
-        
+
     async def start(self):
         if self.browser is not None:
             return
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
+            channel="chromium",
             headless=True,
             args=[
                 "--no-sandbox",
