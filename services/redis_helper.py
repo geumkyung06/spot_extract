@@ -1,6 +1,7 @@
 import redis
 import os
 from datetime import datetime, timedelta
+import uuid
 
 # EC2 내부에 띄운 로컬 Redis에 접속
 REDIS_HOST = os.getenv("REDIS_HOST")
@@ -67,3 +68,46 @@ def add_score_and_check_ad(user_id, score_to_add):
         redis_client.incrbyfloat(target_key, 7) # 다음 목표 +7점
         
     return show_ad
+
+def peek_score_and_target(user_id, score_to_add):
+    """실제 적립 없이, 이번 점수를 더하면 광고가 필요한지만 확인"""
+    current_score = float(redis_client.get(f"user_score:{user_id}") or 0)
+    target_score = float(redis_client.get(f"ad_target:{user_id}") or 10)
+    need_ad = (current_score + score_to_add) >= target_score
+    return current_score, target_score, need_ad
+
+def commit_score(user_id, score_to_add):
+    """실제 점수 적립. 광고 불필요 시 즉시, 광고 필요 시 SSV 검증 후 호출"""
+    now = datetime.now()
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    ttl = int((tomorrow - now).total_seconds())
+
+    score_key, target_key = f"user_score:{user_id}", f"ad_target:{user_id}"
+    if not redis_client.exists(score_key):
+        redis_client.set(score_key, score_to_add, ex=ttl)
+        redis_client.set(target_key, 10, ex=ttl)
+        current_score = score_to_add
+    else:
+        current_score = redis_client.incrbyfloat(score_key, score_to_add)
+
+    target_score = float(redis_client.get(target_key) or 10)
+    if current_score >= target_score:
+        redis_client.incrbyfloat(target_key, 7)
+    return current_score
+
+def create_ad_ticket(user_id, pending_score, ttl=300):
+    ticket_id = uuid.uuid4().hex
+    redis_client.hset(f"ad_ticket:{ticket_id}", mapping={
+        "user_id": user_id, "pending_score": pending_score, "status": "pending",
+    })
+    redis_client.expire(f"ad_ticket:{ticket_id}", ttl)
+    return ticket_id
+
+def verify_ad_ticket(ticket_id):
+    key = f"ad_ticket:{ticket_id}"
+    data = redis_client.hgetall(key)
+    if not data or data.get("status") != "pending":
+        return None
+    commit_score(data["user_id"], float(data["pending_score"]))
+    redis_client.hset(key, "status", "verified")
+    return data
