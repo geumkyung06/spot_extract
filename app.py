@@ -24,6 +24,7 @@ from routes.friend import bp as friend_bp
 from routes.profile import bp as profile_bp
 from routes.home import bp as main_bp
 from routes.notice import bp as notification_bp
+from routes.ad import bp as ads_bp
 
 # pymysql 설정
 pymysql.install_as_MySQLdb()
@@ -107,6 +108,7 @@ def create_app():
     app.register_blueprint(profile_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(notification_bp)
+    app.register_blueprint(ads_bp)
 
     @app.before_request
     async def startup_browser():
