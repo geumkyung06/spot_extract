@@ -40,3 +40,4 @@ konlpy
 geopandas
 psutil
 py-spy
+ecdsa
