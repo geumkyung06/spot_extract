@@ -108,6 +108,20 @@ def verify_ad_ticket(ticket_id):
     data = redis_client.hgetall(key)
     if not data or data.get("status") != "pending":
         return None
-    commit_score(data["user_id"], float(data["pending_score"]))
+
+    user_id = data["user_id"]
+    score_key = f"user_score:{user_id}"
+    target_key = f"ad_target:{user_id}"
+
+    now = datetime.now()
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    ttl = int((tomorrow - now).total_seconds())
+
+    # 광고 시청 완료 → 누적 점수 전부 초기화, 다음 목표치는 +7
+    redis_client.set(score_key, 0, ex=ttl)
+    current_target = float(redis_client.get(target_key) or 10)
+    redis_client.set(target_key, current_target + 7, ex=ttl)
+    
+
     redis_client.hset(key, "status", "verified")
     return data
