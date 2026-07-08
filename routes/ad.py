@@ -225,5 +225,40 @@ def ads_ssv_callback():
 
     return "", 200
 
-# GET /ads/ticket/{ticket_id}/status
-# 클라가 광고 닫힌 후 폴링(1~2초 간격, 몇 번 안 되면 timeout 처리). verified 확인하며 redis에 정보 업데이트 진행
+
+@bp.route("/ads/ticket/<ticket_id>/status", methods=["GET"])
+@jwt_required()
+def ads_ticket_status(ticket_id):
+    """
+    광고 ticket 상태 폴링
+    ---
+    tags:
+      - Ad
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: ticket_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: ticket 상태 반환 (pending | verified)
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: verified
+      404:
+        description: ticket 없음 또는 만료
+    """
+    data = redis_client.hgetall(f"ad_ticket:{ticket_id}")
+    if not data:
+        return jsonify({'status': 'expired'}), 404
+
+    # 다른 유저 ticket 조회 방지
+    if str(get_jwt_identity()) != str(data.get("user_id")):
+        return jsonify({'status': 'error', 'message': 'Forbidden'}), 403
+
+    return jsonify({'status': data.get("status")}), 200
