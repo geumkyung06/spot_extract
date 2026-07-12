@@ -53,10 +53,8 @@ async def get_caption_no_login(post_url: str):
     page = None
     shortcode = _extract_shortcode_from_url(post_url)
 
-    await global_browser_manager.start()
-
     try:
-        context = await global_browser_manager.new_context(
+        playwright_obj, browser, context = await global_browser_manager.get_context(
         locale="ko-KR",
         viewport={"width": 360, "height": 800}
         )
@@ -152,7 +150,7 @@ async def get_caption_no_login(post_url: str):
             logger.warning(f"[FAILED] {post_url} | 캡션을 찾지 못했습니다.")
 
     except Exception as e:
-        logger.error(f"Playwright 에러: {e}")
+        logger.error(f"Playwright 에러: {type(e).__name__} - {e}")
     finally:
         if page:
             try:
@@ -160,7 +158,7 @@ async def get_caption_no_login(post_url: str):
             except Exception as e:
                 logger.error(f"page close 실패: {e}")
         if context:
-            await global_browser_manager.close_context(context)
+            await global_browser_manager.release(playwright_obj, browser, context)
 
     return caption_text
 
@@ -421,7 +419,9 @@ def is_place_post(caption):
         has_action = 1 if action_score > 0 else 0
         has_region = 1 if region_score > 0 else 0
 
-        is_valid = True if (has_place + has_info + has_action + has_region) > 1 else False
+        has_strong_signal = '📍' in caption
+
+        is_valid = (has_place + has_info + has_action + has_region) > 1 or has_strong_signal
         
         logger.info(f"valid:{is_valid}\nscore - place:{place_score}, info:{info_score}, action:{action_score}")
         return is_valid
