@@ -17,39 +17,6 @@ logger = get_my_logger(__name__)
 client = genai.Client(api_key=GEMINI_API_KEY)
 sem = asyncio.Semaphore(3) # OCR 동시 요청 제한
 
-class BrowserManager:
-    async def start(self):
-        if self.browser is not None:
-            return
-        self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",  # 추가: 공유메모리 대신 /tmp 사용
-                "--disable-gpu",             # 추가: GPU 비활성화
-            ]
-        )
-        logger.info("✅ 브라우저 준비 완료")
-
-    async def new_context(self, **kwargs):
-        """요청마다 새 컨텍스트 반환"""
-        return await self.browser.new_context(
-            user_agent="Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
-            **kwargs
-        )
-
-    async def stop(self):
-        """서버 완전 종료 시에만 호출"""
-        if self.browser: await self.browser.close()
-        if self.playwright: await self.playwright.stop()
-        self.browser = None
-        logger.info("🛑 브라우저 종료")
-
-# 전역 브라우저 인스턴스 (재사용을 위해 함수 밖으로 뺌)
-global_browser_manager = BrowserManager()
-
 # 이미지 처리
 def crop_and_save_image(image_data, cut_height=250):
     try:
@@ -81,15 +48,15 @@ def crop_and_save_image(image_data, cut_height=250):
             return output_buffer, img
 
     except Exception as e:
-        print(f"이미지 처리 에러: {e}")
+        logger.error(f"이미지 처리 에러: {e}")
         return None
 
 # 크롤링 로직 (리소스 차단 및 타임아웃 단축)
-async def extract_images(browser_manager: BrowserManager, post_url: str):
-    ordered_images = [] 
+async def extract_images(post_url: str):
+    ordered_images = []
     seen_base_urls = set()
 
-    context = await browser_manager.new_context()  # 내부에서 sem.acquire()
+    playwright_obj, browser, context = await global_browser_manager.get_context()
     page = await context.new_page()
 
     await page.route("**/*", lambda route: 
@@ -145,8 +112,11 @@ async def extract_images(browser_manager: BrowserManager, post_url: str):
     except Exception as e:
         logger.error(f"추출 에러: {e}")
     finally:
-        await page.close()
-        await browser_manager.close_context(context)  # 내부에서 sem.release()
+        try:
+            await page.close()
+        except Exception:
+            pass
+        await global_browser_manager.release(playwright_obj, browser, context)
 
     return ordered_images
 # 다운로드
@@ -159,7 +129,7 @@ async def process_download(session, img_url):
                 result = await asyncio.to_thread(crop_and_save_image, data, 150)
                 # 크롭 결과가 None인지 확인
                 if not result: 
-                    print(f"크롭 결과 없음: {result}]")
+                    logger.info(f"크롭 결과 없음: {result}]")
                     return None, None
 
                 byte_buffer, pil_image = result # 언팩 에러 방지
@@ -168,7 +138,7 @@ async def process_download(session, img_url):
                 return ocr_result
 
     except Exception as e:
-        print(f"개별 처리 에러: {e}")
+        logger.error(f"개별 처리 에러: {e}")
         return None
 
 def gemini_flash_ocr(pil_image):
@@ -236,10 +206,6 @@ def gemini_flash_ocr(pil_image):
 
 # 메인
 async def extract_insta_images(url=""):
-    # [중요] 전역 브라우저 매니저 사용
-    # 처음 실행될 때만 start()가 작동하고, 이후에는 무시됨 (Warm Start 효과)
-    await global_browser_manager.start()
-
     # Flask request 객체 처리 (JSON 바디가 없으면 인자 url 사용)
     target_url = url
     try:
@@ -255,12 +221,11 @@ async def extract_insta_images(url=""):
     
     try:        
         # 전역 매니저를 넘겨줌
-        image_urls = await extract_images(global_browser_manager, target_url)
-        print(image_urls[1])
-        print(f"{len(image_urls)}장 URL 확보 완료")
+        image_urls = await extract_images(target_url)
+        logger.debug(f"{len(image_urls)}장 URL 확보 완료")
 
         if image_urls:
-            print("이미지 다운로드 및 변환 중...")
+            logger.info("이미지 다운로드 및 변환 중...")
             connector = aiohttp.TCPConnector(limit=10)
             async with aiohttp.ClientSession(connector=connector) as session:
                 tasks = [process_download(session, img_url) for img_url in image_urls[1:]]
@@ -273,9 +238,9 @@ async def extract_insta_images(url=""):
                         ocr_results.extend(res)
                     elif isinstance(res, dict) and "error" not in res:
                         ocr_results.append(res)
-            print("OCR 결과: {ocr_results}")
+            logger.debug("OCR 결과: {ocr_results}")
     except Exception as e:
-        print(f"전체 프로세스 에러: {e}")
+        logger.error(f"전체 프로세스 에러: {e}")
         return {"error": str(e)}
     
     return image_urls, ocr_results
