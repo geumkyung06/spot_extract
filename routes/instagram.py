@@ -10,8 +10,9 @@ import threading
 
 
 from services.instagram_text_parser import get_caption_no_login, split_caption, extract_places_with_gpt, is_place_post
-from services.instagram_image_extracter import global_browser_manager, extract_insta_images
+from services.instagram_image_extracter import extract_insta_images
 from services.check_place import process_places
+from services.browser_manager import global_browser_manager
 from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad
 from services.my_logger import get_my_logger
 from services.utils import get_full_photo_url
