@@ -433,6 +433,7 @@ def save_places_to_db(url_id, new_places = []):
                       "category": place.category,
                       "rating_avg": place.rating_avg,
                       "rating_count": place.rating_count,
+                      "gid": place.gid,
                       "photo": get_full_photo_url(place.photo)
                   }
             logger.debug(f"장소 데이터: {place_data}")
