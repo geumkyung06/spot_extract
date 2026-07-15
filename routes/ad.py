@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import requests
+import os
 from ecdsa import VerifyingKey, BadSignatureError
 from ecdsa.util import sigdecode_der
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -207,6 +208,40 @@ async def extract_eligibility():
         'need_ad': need_ad,
         'ticket_id': ticket_id,
     }), 200
+
+@bp.route("/debug/force-verify/<ticket_id>", methods=["POST"])
+@jwt_required()
+def debug_force_verify(ticket_id):
+    """
+    [개발 전용] 테스트 광고 단위 사용 시 /ssv 콜백이 오지 않으므로
+    수동으로 ticket을 verified 처리하기 위한 디버그 엔드포인트.
+    운영 환경(FLASK_ENV=production)에서는 항상 404.
+    """
+    if os.getenv("FLASK_ENV") == "production":
+        return "Not found", 404
+
+    user_id = int(get_jwt_identity())
+    data = redis_client.hgetall(f"ad_ticket:{ticket_id}")
+
+    if not data:
+        return jsonify({'status': 'error', 'message': 'ticket not found or expired'}), 404
+
+    # 본인 ticket만 강제 verify 가능
+    if str(user_id) != str(data.get("user_id")):
+        return jsonify({'status': 'error', 'message': 'Forbidden'}), 403
+
+    if data.get("status") != "pending":
+        return jsonify({
+            'status': 'error',
+            'message': f"ticket status is '{data.get('status')}', not pending"
+        }), 400
+
+    logger.warning(f"[DEBUG] 강제 verify 처리 - ticket_id={ticket_id}, user_id={user_id}")
+    result = verify_ad_ticket(ticket_id)
+    after = redis_client.hget(f"ad_ticket:{ticket_id}", "status")
+    logger.info(f"[DEBUG] 강제 verify 결과 - ticket_id={ticket_id}, after={after}, result={result}")
+
+    return jsonify({'status': after}), 200
 
 @bp.route("/ssv", methods=["GET"])
 def ads_ssv_callback():
