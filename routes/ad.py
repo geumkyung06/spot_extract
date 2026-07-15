@@ -213,10 +213,64 @@ async def extract_eligibility():
 @jwt_required()
 def debug_force_verify(ticket_id):
     """
-    [개발 전용] 테스트 광고 단위 사용 시 /ssv 콜백이 오지 않으므로
-    수동으로 ticket을 verified 처리하기 위한 디버그 엔드포인트.
-    운영 환경(FLASK_ENV=production)에서는 항상 404.
+    [개발 전용] 광고 ticket 강제 verify
+    ---
+    tags:
+      - Ad (Debug)
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: ticket_id
+        type: string
+        required: true
+        description: eligibility에서 발급된 ticket_id
+    responses:
+      200:
+        description: 강제 verify 처리 완료
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: verified
+      400:
+        description: ticket이 pending 상태가 아님 (이미 verified/used)
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: error
+            message:
+              type: string
+              example: "ticket status is 'used', not pending"
+      401:
+        description: 인증 실패
+      403:
+        description: 본인 ticket이 아님
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: error
+            message:
+              type: string
+              example: Forbidden
+      404:
+        description: 운영 환경이거나 ticket 없음/만료
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: error
+            message:
+              type: string
+              example: ticket not found or expired
     """
+    # 운영 환경에서는 완전히 차단
     if os.getenv("FLASK_ENV") == "production":
         return "Not found", 404
 
@@ -242,7 +296,6 @@ def debug_force_verify(ticket_id):
     logger.info(f"[DEBUG] 강제 verify 결과 - ticket_id={ticket_id}, after={after}, result={result}")
 
     return jsonify({'status': after}), 200
-
 @bp.route("/ssv", methods=["GET"])
 def ads_ssv_callback():
     """
