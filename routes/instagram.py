@@ -196,6 +196,8 @@ async def analyze_instagram():
         if not raw:
             return jsonify({'status': 'error', 'message': 'Session not found'}), 400
         
+        extract_session = json.loads(raw)
+
         need_ad = extract_session.get("need_ad", False)
         session_ticket_id = extract_session.get("ticket_id")
         if need_ad:
@@ -224,8 +226,6 @@ async def analyze_instagram():
         url_id, caption, db_places = check_db_have_url(shortcut)
 
         try:
-            extract_session = json.loads(raw)
-            
             # redis session의 shortcut과 요청 shortcut 일치 확인
             if extract_session.get("shortcut") != shortcut:
                 raise ValueError("shortcut mismatch")
