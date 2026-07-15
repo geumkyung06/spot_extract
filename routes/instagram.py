@@ -9,11 +9,11 @@ import re
 import threading
 
 
-from services.instagram_text_parser import get_caption_no_login, split_caption, extract_places_with_gpt, is_place_post
+from services.instagram_text_parser import get_caption_no_login, extract_places_with_gpt, is_place_post
 from services.instagram_image_extracter import extract_insta_images
 from services.check_place import process_places
 from services.browser_manager import global_browser_manager
-from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad
+from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, commit_score
 from services.my_logger import get_my_logger
 from services.utils import get_full_photo_url
 from services.push_notification import send_extraction_notification
@@ -187,92 +187,175 @@ async def analyze_instagram():
         url = data.get('url') # 프론트한테서 받아옴
         start = time.time()
         post_type, shortcut = extract_shortcode(url)
-        logger.info(f"url: {url}, shortcut: {shortcut}")
+
+        raw = redis_client.get(f"extract_session:{user_id}")
+        logger.debug(f"redis result: {raw}")
 
         if not shortcut:
             return jsonify({'status': 'error', 'message': 'URL is required'}), 400
+        if not raw:
+            return jsonify({'status': 'error', 'message': 'Session not found'}), 400
+        
+        need_ad = extract_session.get("need_ad", False)
+        session_ticket_id = extract_session.get("ticket_id")
+        if need_ad:
+            if not session_ticket_id:
+                return jsonify({'status': 'error', 'message': 'ticket not found'}), 400
+            
+            ticket = redis_client.hgetall(f"ad_ticket:{session_ticket_id}")
+            if not ticket or ticket.get("status") != "verified":
+                return jsonify({'status': 'error', 'message': 'Ad not verified'}), 403
+            if str(ticket.get("user_id")) != str(user_id):
+                return jsonify({'status': 'error', 'message': 'Forbidden'}), 403
+            
+            commit_score(user_id, float(ticket.get("pending_score", 0)))
+            redis_client.hset(f"ad_ticket:{session_ticket_id}", "status", "used")
 
+        # redis 접근 : user_id 접근 > shortcut, extract_type 가져오기 
+        # > db : shortcut으로 검색 
+        # > caption : gpt_result로 바로 네이버 검색
+        # > ocr : 바로 playwright 접근해서 ocr 진행
         url = f"https://www.instagram.com/p/{shortcut}"
         logger.info(f"[Start] 분석 시작: {url}")
 
         post_places = [] # 프론트에 보낼 장소들 (name, address, category(list), rating_avg, rating_count)
         new_places = [] # db에 새로 저장할 장소들
-        earned_score = 0.0
 
-        # 1. DB에 이미 URL이 있는지 확인
-        logger.debug("DB에 존재하는 게시물인지 확인 중...")
         url_id, caption, db_places = check_db_have_url(shortcut)
-        db_caption = bool(caption)
 
-        if db_places:
-            logger.info("[1] DB 캐시 존재")
-            earned_score = 0.1 # 추출 전적 존재 0.1점
-            post_places = db_places
-        else:
-            logger.info("[2] 캡션 분석 시도")
-            # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
-            # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
-            # 캡션 추출
-            if not db_caption:
-                caption = await get_caption_no_login(url)
-                if not caption:
-                    return jsonify({'status': 'error', 'message': 'No caption'}), 400
-              
-                # 장소 설명 게시물인지 확인
-                is_place = is_place_post(caption)
-                if not is_place:
-                    handle_fail_count(user_id) # 실패 처리
-                    return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
+        try:
+            extract_session = json.loads(raw)
             
-                #insta_url에 저장 / 장소를 url_place에 저장
-                try:
-                    new_entry = InstaUrl(url=shortcut, texts=caption or "")
-                    db.session.add(new_entry)
-                    db.session.commit()
-                    url_id = new_entry.id
-                except Exception as e:
-                    db.session.rollback()
-                    logger.error(f"InstaUrl 저장 실패: {e}")
-            # 캡션 파싱 로직
-            candidates = await check_caption_place(caption)
+            # redis session의 shortcut과 요청 shortcut 일치 확인
+            if extract_session.get("shortcut") != shortcut:
+                raise ValueError("shortcut mismatch")
 
-            if not candidates:
-                logger.info("[3] OCR 시도...")
-                img_count, candidates = await check_ocr_place(url)
-                if not img_count or not candidates:
-                    return jsonify({'status': 'success', 'message': "Analysis completed, but no location information found"}), 200
-                
-                earned_score = 1.0 * img_count
-            else :
-                earned_score = 0.2 # caption
-            to_search_naver = []
+            extract_type = extract_session["extract_type"]
+        
+            if extract_type == "db":
+                logger.info("[1] DB 캐시 존재")
+                post_places = db_places
 
-            if candidates:
-                # db에서 있는지 확인
-                # candidates = {'place': '아우스페이스', 'address': '경기도 파주시 탄현면 새오리로 145-21'}
-                # x,y 값으로 확인
-                for cand in candidates:
-                  input_name = cand.get('name')
-                  input_addr = (cand.get('address') or "").strip()
-                  to_search_naver.append([input_name, input_addr])
-
-                logger.debug(f"search list: {to_search_naver}")
-                search_results = process_places(to_search_naver, shortcut)
-                search_places = save_places_to_db(url_id, search_results)
-                
-                # 겹치는 장소인지 확인
-                add_places = get_new_unique_places(post_places, search_places)
-                post_places.extend(add_places)
             else:
-                handle_fail_count(user_id)
-                # 게시물에서 장소 추출을 실패했습니다
-                # 추출 알림
-                send_extraction_notification(user_id, 'failed', caption, 0)
-                return jsonify({'status':'failed', 'message': "can not found places"}), 404
+              if extract_type == "caption":
+                  logger.info("[2] 캡션 확인")
+                  candidates = extract_session["gpt_result"]
+                  caption = extract_session["caption"]
 
-        redis_client.delete(f"fail_count:{user_id}")
-        add_score_and_check_ad(user_id, earned_score) # 실패 초기화
-        show_ad = False
+                  if not url_id:  # InstaUrl 미저장 시에만 저장
+                      try:
+                          new_entry = InstaUrl(url=shortcut, texts=caption or "")
+                          db.session.add(new_entry)
+                          db.session.commit()
+                          url_id = new_entry.id
+                      except Exception as e:
+                          db.session.rollback()
+                          logger.error(f"InstaUrl 저장 실패: {e}")
+
+              else:  # ocr
+                  logger.info("[3] OCR 시도")
+                  caption = extract_session.get("caption", "")
+                  img_count, candidates = await check_ocr_place(url)
+                  if not img_count or not candidates:
+                      redis_client.delete(f"extract_session:{user_id}")
+                      return jsonify({'status': 'success', 'message': "no location information found"}), 200
+
+                  if not url_id:
+                      try:
+                          new_entry = InstaUrl(url=shortcut, texts=caption or "")
+                          db.session.add(new_entry)
+                          db.session.commit()
+                          url_id = new_entry.id
+                      except Exception as e:
+                          db.session.rollback()
+                          logger.error(f"InstaUrl 저장 실패: {e}")
+
+              if candidates:
+                  to_search_naver = [[c.get('name'), (c.get('address') or "").strip()] for c in candidates]
+                  search_results = process_places(to_search_naver, shortcut)
+                  search_places = save_places_to_db(url_id, search_results)
+
+                  # 겹치는 장소인지 확인
+                  add_places = get_new_unique_places(post_places, search_places)
+                  post_places.extend(add_places)
+
+              else:
+                  handle_fail_count(user_id)
+                  # 게시물에서 장소 추출을 실패했습니다
+                  # 추출 알림
+                  send_extraction_notification(user_id, 'failed', caption, 0)
+                  return jsonify({'status':'failed', 'message': "can not found places"}), 404
+
+            redis_client.delete(f"extract_session:{user_id}")
+
+        except Exception as e:
+            logger.warning(f"Redis 세션 실패, 기존 로직으로 폴백: {e}")
+            db_caption = bool(caption)
+            # 기존 로직 실행
+            # 만약 reids 저장된 거에서 오류 뜨면 기존 로직으로 진행
+
+            # 1. DB에 이미 URL이 있는지 확인
+            logger.debug("DB에 존재하는 게시물인지 확인 중...")
+            if db_places:
+                logger.info("[1] DB 캐시 존재")
+                post_places = db_places
+            else:
+                logger.info("[2] 캡션 분석 시도")
+                # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
+                # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
+                # 캡션 추출
+                if not db_caption:
+                    caption = await get_caption_no_login(url)
+                    if not caption:
+                        return jsonify({'status': 'error', 'message': 'No caption'}), 400
+                  
+                    # 장소 설명 게시물인지 확인
+                    is_place = is_place_post(caption)
+                    if not is_place:
+                        handle_fail_count(user_id) # 실패 처리
+                        return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
+                
+                    #insta_url에 저장 / 장소를 url_place에 저장
+                    try:
+                        new_entry = InstaUrl(url=shortcut, texts=caption or "")
+                        db.session.add(new_entry)
+                        db.session.commit()
+                        url_id = new_entry.id
+                    except Exception as e:
+                        db.session.rollback()
+                        logger.error(f"InstaUrl 저장 실패: {e}")
+                # 캡션 파싱 로직
+                candidates = await check_caption_place(caption)
+
+                if not candidates:
+                    logger.info("[3] OCR 시도...")
+                    img_count, candidates = await check_ocr_place(url)
+                    if not img_count or not candidates:
+                        return jsonify({'status': 'success', 'message': "Analysis completed, but no location information found"}), 200
+                to_search_naver = []
+
+                if candidates:
+                    # db에서 있는지 확인
+                    # candidates = {'place': '아우스페이스', 'address': '경기도 파주시 탄현면 새오리로 145-21'}
+                    # x,y 값으로 확인
+                    for cand in candidates:
+                      input_name = cand.get('name')
+                      input_addr = (cand.get('address') or "").strip()
+                      to_search_naver.append([input_name, input_addr])
+
+                    logger.debug(f"search list: {to_search_naver}")
+                    search_results = process_places(to_search_naver, shortcut)
+                    search_places = save_places_to_db(url_id, search_results)
+                    
+                    # 겹치는 장소인지 확인
+                    add_places = get_new_unique_places(post_places, search_places)
+                    post_places.extend(add_places)
+                else:
+                    handle_fail_count(user_id)
+                    # 게시물에서 장소 추출을 실패했습니다
+                    # 추출 알림
+                    send_extraction_notification(user_id, 'failed', caption, 0)
+                    return jsonify({'status':'failed', 'message': "can not found places"}), 404
 
         end = time.time()
         logger.debug(f"time: {end-start: .2f}s")
@@ -283,7 +366,7 @@ async def analyze_instagram():
         send_extraction_notification(user_id, 'success', caption, len(post_places))
 
         # 프론트에 보낼 장소 정보
-        return jsonify({'status':'success', 'results': post_places, 'show_ad': show_ad, 'ad_score':earned_score}), 200
+        return jsonify({'status':'success', 'results': post_places}), 200
 
     except Exception as e:
         db.session.rollback()
