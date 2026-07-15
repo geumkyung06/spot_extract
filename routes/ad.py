@@ -39,7 +39,9 @@ def verify_ssv(request):
     content, _, _ = qs.partition("&signature=")  # signature 직전까지가 서명 대상
 
     key_id = int(request.args.get("key_id"))
-    signature = base64.urlsafe_b64decode(request.args.get("signature") + "==")
+    sig_str = request.args.get("signature")
+    sig_str += "=" * (-len(sig_str) % 4)
+    signature = base64.urlsafe_b64decode(sig_str)
 
     key_info = next((k for k in get_public_keys() if k["keyId"] == key_id), None)
     if not key_info:
@@ -125,15 +127,17 @@ async def extract_eligibility():
 
     # 1. DB에 이미 URL이 있는지 확인
     logger.debug("DB에 존재하는 게시물인지 확인 중...")
-    is_caption_post = False
+    caption_place = [] # 리스트 형태
+    extract_type = ""
     url_id, caption, db_places = check_db_have_url(shortcut)
     db_caption = bool(caption)
 
     if db_places:
-        logger.info("[1] DB 캐시 존재")
+        logger.info("[1] DB 캐시 존재 - 추출 전적 존재 0.1점")
         earned_score = 0.1 # 추출 전적 존재 0.1점
+        extract_type = "db"
     else:
-        logger.info("[2] 캡션 분석 시도")
+        logger.debug("[2] 캡션 분석 시도")
         # 2. 장소 확인 후 프론트에게 보낼 장소 정보 준비
         # Q. 가능하면 네이버 검색 돌리기 전에 저장되어있는지 파악하는게 좋을 듯
         # 캡션 추출
@@ -147,10 +151,14 @@ async def extract_eligibility():
                 return jsonify({'status': 'error', 'message': "It is not a place post"}), 400
 
         # db_caption 이든 방금 새로 가져왔든, 캡션이 있으면 항상 검사
-        is_caption_post = extract_places_with_gpt(caption) 
+        caption_extract_start = time.time()
+        caption_place = extract_places_with_gpt(caption) 
+        caption_extract_end = time.time()
+        logger.info(f"caption time: {caption_extract_end - caption_extract_start: .2f}s")
 
-        if is_caption_post == []: # is_caption_post 리스트형태 / 장소 없으면 빈 리스트
-            logger.info("[3] OCR 시도...")
+        if caption_place == []: # caption_place 리스트형태 / 장소 없으면 빈 리스트
+            logger.debug("[3] OCR 시도")
+            extract_type = "ocr"
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page()
@@ -161,24 +169,41 @@ async def extract_eligibility():
             if img_count == -1:
                 img_count = 2  # 캐러셀 확인됐지만 정확한 개수 파악 실패 시 최소값으로 처리
             earned_score = 1.0 * img_count
+            logger.info(f"[3] OCR - {earned_score}점")
         else :
+            extract_type = "caption"
+            logger.info("[2] 캡션 - 0.2점")
             earned_score = 0.2 # caption
 
     redis_client.delete(f"fail_count:{user_id}")
 
     end = time.time()
-    logger.debug(f"time: {end-start: .2f}s")
+    logger.debug(f"total time: {end-start: .2f}s")
 
     current_score, target_score, need_ad = peek_score_and_target(user_id, earned_score)
+
     ticket_id = None
     if need_ad:
         ticket_id = create_ad_ticket(user_id, earned_score)
     else:
         current_score = commit_score(user_id, earned_score)
 
+    # session_id = user_id user_id로 어떤 게시물 추출하려 했는지 확인
+    redis_client.set(f"extract_session:{user_id}",json.dumps({
+        "user_id": user_id,
+        "shortcut": shortcut,               # db 검색용
+        "extract_type": extract_type,       # "db" | "caption" | "ocr"
+        "gpt_result": caption_place,           # ocr인 경우 []
+        'need_ad': need_ad,
+        'ticket_id': ticket_id,
+        "caption": caption,                 # DB 저장용
+        "url": url,                         # ocr일 때 analyze에서 사용
+    }), ex=360)
+        
     return jsonify({
         'score_cost': earned_score,
         'current_score': current_score,
+        'extract_type': extract_type,
         'need_ad': need_ad,
         'ticket_id': ticket_id,
     }), 200
@@ -210,18 +235,38 @@ def ads_ssv_callback():
       400:
         description: 서명 검증 실패 또는 ticket 누락
     """
-    if not verify_ssv(request):
+    tx_id = request.args.get("transaction_id")
+    ad_unit = request.args.get("ad_unit")
+    ticket_id = request.args.get("custom_data")
+    key_id = request.args.get("key_id")
+
+    logger.info(f"[SSV] 수신 - tx_id={tx_id}, ad_unit={ad_unit}, custom_data={ticket_id}, key_id={key_id}")
+
+    try:
+        verified = verify_ssv(request)
+    except Exception as e:
+        logger.error(f"[SSV] 서명 검증 중 예외 - tx_id={tx_id}, error={e}")
         return "invalid signature", 400
 
-    tx_id = request.args.get("transaction_id")
-    ticket_id = request.args.get("custom_data")
+    logger.info(f"[SSV] 서명 검증 결과: {verified}")
+
+    if not verified:
+        return "invalid signature", 400
+
     if not ticket_id:
+        logger.warning(f"[SSV] custom_data(ticket) 누락 - tx_id={tx_id}")
         return "missing ticket", 400
+
+    before = redis_client.hget(f"ad_ticket:{ticket_id}", "status")
 
     if redis_client.set(f"admob_tx:{tx_id}", "1", nx=True, ex=86400):
         result = verify_ad_ticket(ticket_id)
+        after = redis_client.hget(f"ad_ticket:{ticket_id}", "status")
+        logger.info(f"[SSV] 티켓 상태 변경 - ticket_id={ticket_id}, before={before}, after={after}, result={result}")
         if result is None:
-            logger.warning(f"ad ticket 검증 실패 또는 만료: {ticket_id}")
+            logger.warning(f"[SSV] ad ticket 검증 실패 또는 만료: {ticket_id}")
+    else:
+        logger.info(f"[SSV] 중복 tx_id 무시 (idempotent) - tx_id={tx_id}")
 
     return "", 200
 
