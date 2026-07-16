@@ -1,11 +1,14 @@
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models import db, Place, SavedPlace, SavedSeq
+from services.push_notification import notify_place_bookmarked, notify_same_place_saved
+
 user_places_bp = Blueprint("saved_places", __name__)
 
 from services.my_logger import get_my_logger
 logger = get_my_logger(__name__)
+
 
 @user_places_bp.route("/places", methods=["POST"], strict_slashes=False)
 @jwt_required()
@@ -26,12 +29,21 @@ def save_user_places():
           properties:
             save_type:
               type: string
-              example: "instagram"
+              example: "spot"
             place_ids:
               type: array
               items:
                 type: integer
               example: [1, 2]
+            source_type:
+              type: string
+              example: "friend_profile"
+            source_user_id:
+              type: integer
+              example: 42
+            source_comment_id:
+              type: integer
+              example: null
     responses:
       200:
         description: 저장 성공
@@ -40,79 +52,85 @@ def save_user_places():
       500:
         description: 서버 에러
     """
-
     try:
         user_id = int(get_jwt_identity())
         if not user_id:
             return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
-        
+
         body = request.get_json() or {}
-        save_type = body.get("save_type", "spot") # 기본값 설정 - 인스타에선 "instagram"
-        
+        save_type = body.get("save_type", "spot")
+
         input_ids = body.get("place_ids", [])
-        logger.debug(f"추출된 input_ids: {input_ids}") # 로그 추가
+        logger.debug(f"추출된 input_ids: {input_ids}")
 
         target_ids = set()
         if isinstance(input_ids, list):
             for pid in input_ids:
                 try:
-                    if pid is not None and str(pid).strip() != "": # 체크 강화
+                    if pid is not None and str(pid).strip() != "":
                         target_ids.add(int(pid))
                 except (ValueError, TypeError):
-                    logger.warning(f"숫자 변환 실패: {pid}") # 실패 로그
+                    logger.warning(f"숫자 변환 실패: {pid}")
                     continue
-        
-        logger.debug(f"최종 target_ids: {target_ids}") # 최종 결과 확인        
+
+        logger.debug(f"최종 target_ids: {target_ids}")
         if not target_ids:
             return jsonify({"error": "No place_ids provided"}), 400
 
-        saved_count = 0
-        
-        # DB 저장
-        for pid in target_ids:
-            # 장소가 실제로 존재하는지 확인
-            place_exists = Place.query.filter_by(id=pid).first()
+        saved_ids = _do_save_places(user_id, target_ids, save_type)
 
-            if not place_exists:
-                logger.warning(f"Place {pid} not found in DB - SKIPPING")
-                continue
+        if saved_ids:
+            _bump_saved_seq(len(saved_ids))
 
-            # 이미 저장했는지 확인
-            existing = SavedPlace.query.filter_by(
-                user_id=user_id,
-                place_id=pid
-            ).first()
+            source_type = body.get("source_type")
+            source_user_id = body.get("source_user_id")
+            source_comment_id = body.get("source_comment_id")
 
-            if not existing:
-                new_save = SavedPlace(
-                    user_id=user_id,
-                    place_id=pid,
-                    save_type=save_type,
-                    rating=0
-                )
-                db.session.add(new_save)
-                
-                # 장소 테이블의 총 저장 수(saved_count) 증가
-                place_exists.saved_count = (place_exists.saved_count or 0) + 1
-                
-                saved_count += 1
-            logger.debug(f"저장수: {saved_count}")
+            if source_type in ("friend_profile", "comment") and source_user_id and source_user_id != user_id:
+                notify_place_bookmarked(source_user_id, user_id, saved_ids, source_comment_id)  # #5
 
-        if saved_count > 0:
-            seq_row = SavedSeq.query.first() 
-            if seq_row:
-                seq_row.next_val = (seq_row.next_val or 0) + saved_count
-            else:
-                new_seq = SavedSeq(next_val=saved_count)
-                db.session.add(new_seq)
+            notify_same_place_saved(user_id, saved_ids, exclude_user_id=source_user_id)  # #6
+
         db.session.commit()
 
         return jsonify({
             "status": "success",
-            "saved_count": saved_count,
-            "message": f"saved {saved_count} place"
+            "saved_count": len(saved_ids),
+            "message": f"saved {len(saved_ids)} place"
         }), 200
 
     except Exception as e:
         db.session.rollback()
+        logger.exception("save_user_places failed")
         return jsonify({"error": str(e)}), 500
+
+
+def _do_save_places(user_id, target_ids, save_type):
+    """실제 저장 + saved_count 증가. DB 존재 여부/중복 체크 포함.
+    커밋은 호출부에서 한 번만 수행."""
+    saved_ids = []
+    for pid in target_ids:
+        place_exists = Place.query.filter_by(id=pid).first()
+        if not place_exists:
+            logger.warning(f"Place {pid} not found in DB - SKIPPING")
+            continue
+
+        existing = SavedPlace.query.filter_by(user_id=user_id, place_id=pid).first()
+        if existing:
+            continue
+
+        db.session.add(SavedPlace(user_id=user_id, place_id=pid, save_type=save_type, rating=0))
+        place_exists.saved_count = (place_exists.saved_count or 0) + 1
+        saved_ids.append(pid)
+
+    return saved_ids
+
+
+def _bump_saved_seq(count):
+    if count <= 0:
+        return
+    seq_row = SavedSeq.query.first()
+    if seq_row:
+        seq_row.next_val = (seq_row.next_val or 0) + count
+    else:
+        db.session.add(SavedSeq(next_val=count))
