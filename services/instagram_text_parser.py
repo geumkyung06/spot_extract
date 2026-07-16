@@ -54,7 +54,7 @@ async def get_caption_no_login(post_url: str):
     shortcode = _extract_shortcode_from_url(post_url)
 
     try:
-        playwright_obj, browser, context = await global_browser_manager.get_context(
+        playwright_obj, context = await global_browser_manager.get_context(
         locale="ko-KR",
         viewport={"width": 360, "height": 800}
         )
@@ -158,7 +158,7 @@ async def get_caption_no_login(post_url: str):
             except Exception as e:
                 logger.error(f"page close 실패: {e}")
         if context:
-            await global_browser_manager.release(playwright_obj, browser, context)
+            await global_browser_manager.release(playwright_obj, context)
 
     return caption_text
 
