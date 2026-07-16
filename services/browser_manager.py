@@ -42,25 +42,18 @@ class BrowserManager:
                 ),
                 timeout=15
             )
-            return playwright_obj, browser, context
+            return playwright_obj, context
         except Exception:
             self._sem.release()
             raise
 
-    async def release(self, playwright_obj, browser, context):
+    async def release(self, playwright_obj, context):
         """요청 끝나면 브라우저 전체를 통째로 폐기"""
         try:
             if context:
                 await asyncio.wait_for(context.close(), timeout=5)
         except Exception as e:
             logger.warning(f"context close 실패(무시): {e}")
-
-        try:
-            if browser:
-                await asyncio.wait_for(browser.close(), timeout=5)
-        except Exception as e:
-            logger.warning(f"browser close 실패, 강제 종료 시도: {e}")
-            self._force_kill(browser)
 
         try:
             if playwright_obj:
