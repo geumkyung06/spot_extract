@@ -78,20 +78,20 @@ def save_user_places():
             return jsonify({"error": "No place_ids provided"}), 400
 
         saved_ids = _do_save_places(user_id, target_ids, save_type)
-        logger.debug(f"saved_ids: {saved_ids}, source_type: {source_type}, source_user_id: {source_user_id}")
 
+        source_type = body.get("source_type")
+        source_user_id = body.get("source_user_id")
+        source_comment_id = body.get("source_comment_id")
+
+        logger.debug(f"saved_ids: {saved_ids}, source_type: {source_type}, source_user_id: {source_user_id}")
 
         if saved_ids:
             _bump_saved_seq(len(saved_ids))
 
-            source_type = body.get("source_type")
-            source_user_id = body.get("source_user_id")
-            source_comment_id = body.get("source_comment_id")
-
             if source_type in ("friend_profile", "comment") and source_user_id and source_user_id != user_id:
-                notify_place_bookmarked(source_user_id, user_id, saved_ids, source_comment_id)
+                notify_place_bookmarked(source_user_id, user_id, saved_ids, source_comment_id)  # #5
 
-            notify_same_place_saved(user_id, saved_ids, exclude_user_id=source_user_id)
+            notify_same_place_saved(user_id, saved_ids, exclude_user_id=source_user_id)  # #6
         else:
             logger.debug(f"신규 저장 없음 (전부 중복) - user_id={user_id}, target_ids={target_ids}")
 
