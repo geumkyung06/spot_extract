@@ -56,7 +56,7 @@ async def extract_images(post_url: str):
     ordered_images = []
     seen_base_urls = set()
 
-    playwright_obj, browser, context = await global_browser_manager.get_context()
+    playwright_obj, context = await global_browser_manager.get_context()
     page = await context.new_page()
 
     await page.route("**/*", lambda route: 
@@ -116,7 +116,7 @@ async def extract_images(post_url: str):
             await page.close()
         except Exception:
             pass
-        await global_browser_manager.release(playwright_obj, browser, context)
+        await global_browser_manager.release(playwright_obj, context)
 
     return ordered_images
 # 다운로드
