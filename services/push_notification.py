@@ -144,31 +144,29 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
     saved_place_ids: 이번에 새로 저장된 place_id 리스트
     exclude_user_id: #5로 이미 알림 나간 대상 (중복 방지)
 
-    -> actor_id를 팔로우하는 사람들(팔로워) 중, 같은 place를 이미 저장한 사람에게 알림
+    -> actor_id가 팔로우하는 사람들(팔로잉) 중, 같은 place를 이미 저장한 사람에게 알림
     """
     if not saved_place_ids:
         return
 
-    follower_ids = get_follower_ids(actor_id)
-    if not follower_ids:
-        logger.debug(f"friend_saved_same_place 스킵 - actor={actor_id}의 팔로워 없음")
+    following_ids = get_following_ids(actor_id)
+    if not following_ids:
+        logger.debug(f"friend_saved_same_place 스킵 - actor={actor_id}가 팔로우하는 사람 없음")
         return
 
     rows = (
         db.session.query(SavedPlace.user_id, SavedPlace.place_id)
         .filter(
             SavedPlace.place_id.in_(saved_place_ids),
-            SavedPlace.user_id.in_(follower_ids),
+            SavedPlace.user_id.in_(following_ids),
         )
         .all()
     )
 
     if not rows:
-        logger.debug(f"friend_saved_same_place 스킵 - 팔로워 중 같은 place 저장자 없음 (actor={actor_id}, follower_ids={follower_ids}, place_ids={saved_place_ids})")
+        logger.debug(f"friend_saved_same_place 스킵 - 팔로잉 중 같은 place 저장자 없음 (actor={actor_id}, following_ids={following_ids}, place_ids={saved_place_ids})")
         return
-    
-    logger.debug(f"friend_saved_same_place 알림 대상 {len(by_follower)}명")
-    
+
     place_ids_needed = {pid for _, pid in rows}
     places = Place.query.filter(Place.id.in_(place_ids_needed)).all()
     place_map = {p.id: p for p in places}
@@ -176,20 +174,20 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
     actor_name = _get_actor_name(actor_id)
     title = "친구가 같은 장소 저장"
 
-    by_follower = {}
-    for follower_id, place_id in rows:
-        if follower_id == exclude_user_id:
+    by_target = {}
+    for target_id, place_id in rows:
+        if target_id == exclude_user_id:
             continue
-        by_follower.setdefault(follower_id, []).append(place_id)
+        by_target.setdefault(target_id, []).append(place_id)
 
-    for follower_id, place_ids in by_follower.items():
+    for target_id, place_ids in by_target.items():
         for pid in place_ids:
             place = place_map.get(pid)
             place_name = place.name if place else "장소"
 
             noti = Notification(
                 type="friend_saved_same_place",
-                user_id=follower_id,
+                user_id=target_id,
                 sender_id=actor_id,
                 target_id=pid,
                 target_type="place",
@@ -200,6 +198,7 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
                 is_read=False,
             )
             db.session.add(noti)
+            logger.debug(f"friend_saved_same_place 알림 생성 - recipient={target_id}, place_id={pid}")
 
         if len(place_ids) == 1:
             p = place_map.get(place_ids[0])
@@ -208,9 +207,8 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
         else:
             push_body = f"{actor_name}님이 회원님과 같은 장소 {len(place_ids)}곳을 저장했습니다."
 
-        token = _get_active_token(follower_id)
+        token = _get_active_token(target_id)
         _push_async(token, title, push_body)
-
 def send_extraction_notification(user_id, status: str, caption: str, place_count: int = 0):
     """status: 'success' | 'failed'"""
     title = "추출 완료" if status == "success" else "추출 실패"
