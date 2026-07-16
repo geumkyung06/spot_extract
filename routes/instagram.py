@@ -443,10 +443,6 @@ async def check_ocr_place(url=""):
         start_total = time.time()
         logger.debug(f"분석 요청: {url}")
 
-        # 이미지 URL 추출
-        if not global_browser_manager.browser:
-            await global_browser_manager.start()
-
         images, final_places = await extract_insta_images(url)
 
         if isinstance(final_places, dict) and "error" in final_places:
