@@ -35,6 +35,7 @@ def send_expo_push_notification(token, title, body):
 
 def _push_async(token, title, body):
     if not token:
+        logger.debug("푸시 스킵 - 활성 토큰 없음")
         return
     thr = threading.Thread(target=send_expo_push_notification, args=(token, title, body))
     thr.start()
@@ -88,14 +89,16 @@ def is_following(follower_id, target_id):
 
 def notify_place_bookmarked(recipient_id, actor_id, saved_place_ids, source_comment_id=None):
     """
-    이벤트 #5: 친구가 내 장소 저장(북마크)
+    이벤트: 친구가 내 장소 저장(북마크)
     recipient_id: 프로필/코멘트 주인 (알림 받을 사람)
     actor_id: 실제로 저장한 사람
     saved_place_ids: 이번에 새로 저장된 place_id 리스트
     """
     if not saved_place_ids or recipient_id == actor_id:
+        logger.debug(f"place_bookmarked 스킵 - saved_place_ids={saved_place_ids}, recipient={recipient_id}, actor={actor_id}")
         return
 
+    logger.debug(f"place_bookmarked 알림 {len(saved_place_ids)}건 생성 - recipient={recipient_id}")
     actor_name = _get_actor_name(actor_id)
     title = "친구가 내 장소 저장"
     target_type = "comment" if source_comment_id else "profile"
@@ -148,6 +151,7 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
 
     follower_ids = get_follower_ids(actor_id)
     if not follower_ids:
+        logger.debug(f"friend_saved_same_place 스킵 - actor={actor_id}의 팔로워 없음")
         return
 
     rows = (
@@ -160,8 +164,11 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
     )
 
     if not rows:
+        logger.debug(f"friend_saved_same_place 스킵 - 팔로워 중 같은 place 저장자 없음 (actor={actor_id}, follower_ids={follower_ids}, place_ids={saved_place_ids})")
         return
-
+    
+    logger.debug(f"friend_saved_same_place 알림 대상 {len(by_follower)}명")
+    
     place_ids_needed = {pid for _, pid in rows}
     places = Place.query.filter(Place.id.in_(place_ids_needed)).all()
     place_map = {p.id: p for p in places}
