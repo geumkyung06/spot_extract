@@ -6,6 +6,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Device
 
 from services.my_logger import get_my_logger
+from services.push_notification import build_body_segments
 
 bp = Blueprint('notification', __name__)
 logger = get_my_logger(__name__)
@@ -305,11 +306,15 @@ def read_unread_notification():
 @jwt_required()
 def check_notification():
     """
-    알림 목록 조회
+    알림 목록 조회 (전체 타입)
     ---
     tags:
       - Notification
-    summary: 로그인 유저가 받은 알림 목록 반환
+    summary: 로그인 유저가 받은 모든 종류의 알림 목록 반환
+    description: >
+      follow_request, follow_accept, place_bookmarked, friend_saved_same_place 등
+      모든 타입의 알림을 최신순으로 반환합니다. body_segments는 프론트에서
+      볼드 처리할 부분을 구분한 세그먼트 배열입니다.
     security:
       - Bearer: []
     responses:
@@ -328,13 +333,20 @@ def check_notification():
                     example: 1
                   type:
                     type: string
-                    example: "follow_request"
+                    example: "place_bookmarked"
                   is_read:
                     type: boolean
                     example: false
                   created_at:
                     type: string
-                    example: "2026-06-27 11:00:00"
+                    example: "2026-07-17 11:00:00"
+                  target_id:
+                    type: integer
+                    example: 87
+                    description: 알림 타입에 따라 place_id 등 참조 대상
+                  target_type:
+                    type: string
+                    example: "profile"
                   sender_id:
                     type: integer
                     example: 42
@@ -350,6 +362,24 @@ def check_notification():
                   one_line:
                     type: string
                     example: "안녕하세요"
+                  place_name:
+                    type: string
+                    example: "스타벅스 강남점"
+                    description: target이 place인 알림에서만 채워짐
+                  body_segments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        bold:
+                          type: boolean
+                    example:
+                      - text: "맛있는 것만 공유해요"
+                        bold: true
+                      - text: "님이 회원님의 장소를 저장했습니다."
+                        bold: false
       500:
         description: 서버 오류
     """
@@ -365,18 +395,36 @@ def check_notification():
                 n.type,
                 n.is_read,
                 n.created_at,
+                n.target_id,
+                n.target_type,
                 m.id            AS sender_id,
                 m.photo,
                 m.spot_id,
                 m.spot_nickname,
-                m.one_line
+                m.one_line,
+                p.name          AS place_name
             FROM notifications n
             LEFT JOIN kakao_mem m ON m.id = n.sender_id
+            LEFT JOIN places p 
+                ON p.id = n.target_id 
+                AND n.type IN ('place_bookmarked', 'friend_saved_same_place')
             WHERE n.user_id = %s
             ORDER BY n.created_at DESC
         """, (user_id,))
 
         rows = cursor.fetchall()
+
+        for row in rows:
+            row["is_read"] = bool(row["is_read"])
+            if row.get("created_at"):
+                row["created_at"] = row["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+
+            row["body_segments"] = build_body_segments(
+                row["type"],
+                row.get("spot_nickname"),
+                place_name=row.get("place_name"),
+            )
+
         return jsonify({"notifications": rows}), 200
 
     except Exception as e:
