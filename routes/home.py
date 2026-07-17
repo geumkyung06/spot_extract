@@ -444,7 +444,11 @@ def get_all_places():
         for saver in place["savers"]:
             del saver['updated_at']
     
-    logger.debug(f"savers 관련 업데이트한 최종 장소 정보: {result_list[0]}")
+    if result_list:
+        logger.debug(f"savers 관련 업데이트한 최종 장소 정보: {result_list[0]}")
+    else:
+        logger.debug("get_my_places: 저장한 장소 없음 (result_list 비어있음)")
+        
     return jsonify(result_list), 200
 
 
