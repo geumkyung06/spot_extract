@@ -1412,33 +1412,104 @@ def post_place_like(place_id):
 @jwt_required()
 def get_place_details():
     """
-    장소 상세 정보 조회
-    ---
-    tags:
-      - Main
-    security:
-      - Bearer: []
-    parameters:
-      - name: place_id
-        in: query
-        type: integer
-        required: true
-        description: 장소 PK
-      - name: lat
-        in: query
-        type: number
-        format: float
-        description: 현재 위치 위도 (입력 시 거리 계산)
-      - name: lng
-        in: query
-        type: number
-        format: float
-        description: 현재 위치 경도 (입력 시 거리 계산)
-    responses:
-      200:
-        description: 장소 상세 정보 반환 성공
-      404:
-        description: 장소를 찾을 수 없음
+      장소 상세 정보 조회
+      ---
+      tags:
+        - Main
+      security:
+        - Bearer: []
+      parameters:
+        - name: place_id
+          in: query
+          type: integer
+          required: true
+          description: 장소 PK
+        - name: lat
+          in: query
+          type: number
+          format: float
+          description: 현재 위치 위도 (입력 시 거리 계산)
+        - name: lng
+          in: query
+          type: number
+          format: float
+          description: 현재 위치 경도 (입력 시 거리 계산)
+      responses:
+        200:
+          description: 장소 상세 정보 반환 성공
+          schema:
+            type: object
+            properties:
+              places:
+                type: object
+                properties:
+                  placeId:
+                    type: integer
+                    description: "장소 PK"
+                  gId:
+                    type: string
+                    description: "장소의 고유 식별자 (Google Place ID)"
+                  name:
+                    type: string
+                    description: "장소명"
+                  address:
+                    type: string
+                    description: "장소 주소"
+                  latitude:
+                    type: number
+                    format: float
+                    description: "장소 위도"
+                  longitude:
+                    type: number
+                    format: float
+                    description: "장소 경도"
+                  list:
+                    type: string
+                    description: "장소 카테고리"
+                  photos:
+                    type: array
+                    description: "장소 사진 URL 목록"
+                    items:
+                      type: string
+                  ratingAvg:
+                    type: number
+                    format: float
+                    description: "해당 장소의 전체 평균 별점"
+                  ratingCount:
+                    type: integer
+                    description: "평점을 남긴 총 인원 수"
+                  myRating:
+                    type: number
+                    format: float
+                    description: "내가 준 별점 (저장 안 했으면 null)"
+                  isMarked:
+                    type: boolean
+                    description: "내 저장 여부"
+                  distance:
+                    type: number
+                    format: float
+                    description: "현재 위치와의 거리 (m, 위치 정보 없을 시 0.0)"
+                    example: 1250.0
+                  savers:
+                    type: array
+                    description: "이 장소를 저장한 내 친구들 목록 (최신순)"
+                    items:
+                      type: object
+                      properties:
+                        nickname:
+                          type: string
+                          description: "친구 닉네임"
+                        profileImageUrl:
+                          type: string
+                          description: "친구 프로필 이미지 URL"
+        404:
+          description: 장소를 찾을 수 없음
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "place not found"
     """
     place_id = request.args.get("place_id", type=int)
     if not place_id:
