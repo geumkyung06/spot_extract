@@ -1100,7 +1100,7 @@ def get_my_pins():
     
 # ME: 내 저장 장소 목록 조회
 @bp.route('/main/me/places', methods=['GET'])
-@jwt_required(optional=True)
+@jwt_required()
 def get_my_places():
     """
     내가 저장한 장소 목록 조회
@@ -1407,6 +1407,167 @@ def post_place_like(place_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+@bp.route('/main/place/details', methods=['GET'])
+@jwt_required()
+def get_place_details():
+    """
+    장소 상세 정보 조회
+    ---
+    tags:
+      - Main
+    security:
+      - Bearer: []
+    parameters:
+      - name: place_id
+        in: query
+        type: integer
+        required: true
+        description: 장소 PK
+      - name: lat
+        in: query
+        type: number
+        format: float
+        description: 현재 위치 위도 (입력 시 거리 계산)
+      - name: lng
+        in: query
+        type: number
+        format: float
+        description: 현재 위치 경도 (입력 시 거리 계산)
+    responses:
+      200:
+        description: 장소 상세 정보 반환 성공
+      404:
+        description: 장소를 찾을 수 없음
+    """
+    place_id = request.args.get("place_id", type=int)
+    if not place_id:
+        return jsonify({'error': 'place_id is required'}), 400
+
+    user_id = int(get_jwt_identity())
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+
+    try:
+        current_lat = request.args.get("lat", type=float)
+        current_lng = request.args.get("lng", type=float)
+    except (TypeError, ValueError):
+        current_lat, current_lng = None, None
+
+    # 로그인 안 했으면 친구 목록 없음
+    friend_ids = []
+    friends = Friend.query.filter_by(member_id=user_id, status='friend').all()
+    friend_ids = [f.friend_id for f in friends]
+
+    db = get_db()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    select_clause = """
+        SELECT
+            p.id AS placeId,
+            p.gid,
+            p.name,
+            p.address,
+            p.latitude,
+            p.longitude,
+            p.category AS category,
+            p.photo,
+            p.rating_avg AS ratingAvg,
+            my_sp.rating AS myRating,
+            f_k.spot_nickname AS friend_nickname,
+            f_k.photo AS friend_photo,
+            f_sp.updated_at AS friend_updated_at,
+            (SELECT COUNT(*) FROM saved_place sp2
+                WHERE sp2.place_id = p.id AND sp2.rating IS NOT NULL) AS ratingCount
+    """
+
+    params = []
+
+    if current_lat is not None and current_lng is not None:
+        select_clause += """,
+            (6371 * acos(
+                cos(radians(%s)) * cos(radians(p.latitude)) *
+                cos(radians(p.longitude) - radians(%s)) +
+                sin(radians(%s)) * sin(radians(p.latitude))
+            )) AS distance
+        """
+        params.extend([current_lat, current_lng, current_lat])
+    else:
+        select_clause += ", 0 AS distance "
+
+    # 내 저장 여부/평점 확인용 LEFT JOIN
+    my_join = "LEFT JOIN saved_place my_sp ON p.id = my_sp.place_id AND my_sp.user_id = %s"
+    params_my = [user_id]
+
+    if friend_ids:
+        placeholders = ', '.join(['%s'] * len(friend_ids))
+        f_join = f"""
+            LEFT JOIN saved_place f_sp ON p.id = f_sp.place_id AND f_sp.user_id IN ({placeholders})
+            LEFT JOIN kakao_mem f_k ON f_sp.user_id = f_k.id
+        """
+        params_friend = list(friend_ids)
+    else:
+        f_join = """
+            LEFT JOIN saved_place f_sp ON 1=0
+            LEFT JOIN kakao_mem f_k ON 1=0
+        """
+        params_friend = []
+
+    from_where_clause = f"""
+        FROM place p
+        {my_join}
+        {f_join}
+        WHERE p.id = %s
+    """
+
+    params.extend(params_my)
+    params.extend(params_friend)
+    params.append(place_id)
+
+    query = select_clause + from_where_clause
+    cursor.execute(query, tuple(params))
+    rows = cursor.fetchall()
+
+    if not rows:
+        return jsonify({'error': 'place not found'}), 404
+
+    first = rows[0]
+    raw_distance = first.get('distance')
+    distance = round(float(raw_distance), 1) if raw_distance is not None else 0.0
+
+    place = {
+        "placeId": first['placeId'],
+        "gId": first['gid'],
+        "name": first['name'],
+        "address": first['address'],
+        "latitude": float(first['latitude']) if first['latitude'] else 0.0,
+        "longitude": float(first['longitude']) if first['longitude'] else 0.0,
+        "list": first['category'],
+        # TODO: 장소별 다중 사진 테이블이 있으면 그걸로 교체, 지금은 단일 photo만 배열로 감쌈
+        "photos": [get_full_photo_url(first['photo'])] if first.get('photo') else [],
+        "ratingAvg": float(first['ratingAvg']) if first['ratingAvg'] else 0.0,
+        "ratingCount": first['ratingCount'] or 0,
+        "myRating": first['myRating'],
+        "isMarked": first['myRating'] is not None,  # my_sp 매칭됐으면 저장한 것
+        "distance": distance * 1000,  # m 단위
+        "savers": []
+    }
+
+    seen_savers = set()
+    for row in rows:
+        if row['friend_nickname'] and row['friend_nickname'] not in seen_savers:
+            place["savers"].append({
+                "nickname": row['friend_nickname'],
+                "profileImageUrl": row['friend_photo'] if row['friend_photo'] else "",
+                "_updated_at": row['friend_updated_at']
+            })
+            seen_savers.add(row['friend_nickname'])
+
+    place["savers"].sort(key=lambda x: x['_updated_at'], reverse=True)
+    for saver in place["savers"]:
+        del saver['_updated_at']
+
+    return jsonify({"places": place}), 200
 
 # sql에서 반경 확인으로 변경 필요
 # 거리 확인 로직
