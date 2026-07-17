@@ -209,6 +209,7 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
 
         token = _get_active_token(target_id)
         _push_async(token, title, push_body)
+
 def send_extraction_notification(user_id, status: str, caption: str, place_count: int = 0):
     """status: 'success' | 'failed'"""
     title = "추출 완료" if status == "success" else "추출 실패"
@@ -238,3 +239,33 @@ def send_extraction_notification(user_id, status: str, caption: str, place_count
 
     token = _get_active_token(user_id)
     _push_async(token, title, push_body)
+
+def build_body_segments(notification_type, nickname, **kwargs):
+    """
+    알림 type에 따라 [{"text":..., "bold":...}, ...] 형태의 세그먼트 반환
+    """
+    nickname = nickname or "누군가"
+
+    templates = {
+        "follow_request": lambda: [
+            {"text": nickname, "bold": True},
+            {"text": "님이 팔로우를 요청했습니다.", "bold": False},
+        ],
+        "follow_accept": lambda: [
+            {"text": nickname, "bold": True},
+            {"text": "님이 팔로우를 수락했습니다.", "bold": False},
+        ],
+        "place_bookmarked": lambda: [
+            {"text": nickname, "bold": True},
+            {"text": "님이 회원님의 장소를 저장했습니다.", "bold": False},
+        ] + ([{"text": f" ({kwargs['place_name']})", "bold": False}] if kwargs.get("place_name") else []),
+        "friend_saved_same_place": lambda: [
+            {"text": nickname, "bold": True},
+            {"text": f"님이 회원님과 같은 {kwargs.get('place_name', '장소')}을 저장했습니다.", "bold": False},
+        ],
+    }
+
+    builder = templates.get(notification_type)
+    if not builder:
+        return [{"text": nickname, "bold": True}, {"text": "님에게서 알림이 도착했습니다.", "bold": False}]
+    return builder()
