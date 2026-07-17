@@ -405,7 +405,7 @@ def check_notification():
                 p.name          AS place_name
             FROM notifications n
             LEFT JOIN kakao_mem m ON m.id = n.sender_id
-            LEFT JOIN places p 
+            LEFT JOIN place p 
                 ON p.id = n.target_id 
                 AND n.type IN ('place_bookmarked', 'friend_saved_same_place')
             WHERE n.user_id = %s
