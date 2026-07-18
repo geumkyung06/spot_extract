@@ -13,45 +13,6 @@ logger = get_my_logger(__name__)
 @user_places_bp.route("/places", methods=["POST"], strict_slashes=False)
 @jwt_required()
 def save_user_places():
-    """
-    유저별 장소 저장
-    ---
-    tags:
-      - Saved Places
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            save_type:
-              type: string
-              example: "spot"
-            place_ids:
-              type: array
-              items:
-                type: integer
-              example: [1, 2]
-            source_type:
-              type: string
-              example: "friend_profile"
-            source_user_id:
-              type: integer
-              example: 42
-            source_comment_id:
-              type: integer
-              example: null
-    responses:
-      200:
-        description: 저장 성공
-      400:
-        description: 잘못된 요청
-      500:
-        description: 서버 에러
-    """
     try:
         user_id = int(get_jwt_identity())
         if not user_id:
@@ -88,10 +49,44 @@ def save_user_places():
         if saved_ids:
             _bump_saved_seq(len(saved_ids))
 
-            if source_type in ("friend_profile", "comment") and source_user_id and source_user_id != user_id:
-                notify_place_bookmarked(source_user_id, user_id, saved_ids, source_comment_id)  # #5
+            should_notify_bookmark = (
+                source_type in ("friend_profile", "comment")
+                and source_user_id
+                and source_user_id != user_id
+            )
+            logger.debug(
+                f"[알림판단] should_notify_bookmark={should_notify_bookmark} "
+                f"(source_type={source_type}, source_user_id={source_user_id}, user_id={user_id})"
+            )
 
-            notify_same_place_saved(user_id, saved_ids, exclude_user_id=source_user_id)  # #6
+            if should_notify_bookmark:
+                try:
+                    logger.debug(
+                        f"[알림호출] notify_place_bookmarked 시작 - "
+                        f"recipient={source_user_id}, actor={user_id}, saved_ids={saved_ids}, comment_id={source_comment_id}"
+                    )
+                    result = notify_place_bookmarked(source_user_id, user_id, saved_ids, source_comment_id)  # #5
+                    logger.debug(f"[알림호출] notify_place_bookmarked 결과: {result}")
+                except Exception:
+                    logger.exception(
+                        f"[알림실패] notify_place_bookmarked 예외 발생 - "
+                        f"recipient={source_user_id}, actor={user_id}, saved_ids={saved_ids}"
+                    )
+            else:
+                logger.debug("[알림스킵] notify_place_bookmarked 조건 불충족")
+
+            try:
+                logger.debug(
+                    f"[알림호출] notify_same_place_saved 시작 - "
+                    f"user_id={user_id}, saved_ids={saved_ids}, exclude_user_id={source_user_id}"
+                )
+                result = notify_same_place_saved(user_id, saved_ids, exclude_user_id=source_user_id)  # #6
+                logger.debug(f"[알림호출] notify_same_place_saved 결과: {result}")
+            except Exception:
+                logger.exception(
+                    f"[알림실패] notify_same_place_saved 예외 발생 - "
+                    f"user_id={user_id}, saved_ids={saved_ids}"
+                )
         else:
             logger.debug(f"신규 저장 없음 (전부 중복) - user_id={user_id}, target_ids={target_ids}")
 
@@ -107,7 +102,6 @@ def save_user_places():
         db.session.rollback()
         logger.exception("save_user_places failed")
         return jsonify({"error": str(e)}), 500
-
 
 def _do_save_places(user_id, target_ids, save_type):
     """실제 저장 + saved_count 증가. DB 존재 여부/중복 체크 포함.
@@ -212,19 +206,36 @@ def toggle_bookmark(place_id):
             source_type = body.get("source_type")
             source_user_id = body.get("source_user_id")
             source_comment_id = body.get("source_comment_id")
-            logger.debug(f"알림 트리거 판단 - source_type={source_type}, source_user_id={source_user_id}")
 
-            if source_type in ("friend_profile", "comment") and source_user_id and source_user_id != user_id:
-                logger.debug(f"notify_place_bookmarked 호출 - recipient={source_user_id}, actor={user_id}")
-                notify_place_bookmarked(source_user_id, user_id, saved_ids, source_comment_id)
+            should_notify_bookmark = (
+                source_type in ("friend_profile", "comment")
+                and source_user_id
+                and source_user_id != user_id
+            )
+            logger.debug(
+                f"[알림판단] should_notify_bookmark={should_notify_bookmark} "
+                f"(source_type={source_type}, source_user_id={source_user_id}, user_id={user_id})"
+            )
+
+            if should_notify_bookmark:
+                try:
+                    logger.debug(f"[알림호출] notify_place_bookmarked 시작 - recipient={source_user_id}, actor={user_id}")
+                    result = notify_place_bookmarked(source_user_id, user_id, saved_ids, source_comment_id)
+                    logger.debug(f"[알림호출] notify_place_bookmarked 결과: {result}")
+                except Exception:
+                    logger.exception(f"[알림실패] notify_place_bookmarked 예외 - recipient={source_user_id}")
             else:
-                logger.debug("notify_place_bookmarked 스킵 - 조건 불충족")
+                logger.debug("[알림스킵] notify_place_bookmarked 조건 불충족")
 
-            notify_same_place_saved(user_id, saved_ids, exclude_user_id=source_user_id)
+            try:
+                logger.debug(f"[알림호출] notify_same_place_saved 시작 - user_id={user_id}, saved_ids={saved_ids}")
+                result = notify_same_place_saved(user_id, saved_ids, exclude_user_id=source_user_id)
+                logger.debug(f"[알림호출] notify_same_place_saved 결과: {result}")
+            except Exception:
+                logger.exception(f"[알림실패] notify_same_place_saved 예외 - user_id={user_id}")
         else:
-            # _do_save_places가 이미 existing 체크로 걸러졌어야 정상 흐름상 이 분기는 안 와야 함
             logger.warning(f"toggle_bookmark 이상 상황 - existing=None인데 saved_ids도 비어있음. place_id={place_id}, user_id={user_id}")
-
+        
         db.session.commit()
         logger.debug(f"북마크 저장 완료 - user_id={user_id}, place_id={place_id}")
         return jsonify({"status": "success", "isMarked": True, "message": "saved"}), 200
