@@ -181,10 +181,6 @@ def get_all_pins():
     if current_lat is not None and current_lng is not None and current_distance is not None:
       query += " HAVING distance <= %s"
       params.append(current_distance)
-
-    logger.debug(f"쿼리 내 %s 개수: {query.count('%s')}")
-    logger.debug(f"params 리스트 개수: {len(params)}")
-    logger.debug(f"params 구성 데이터: {params}")
     
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
@@ -425,7 +421,6 @@ def get_all_places():
                 "saversCount": 0,
                 "savers": []
             }
-            logger.debug(f"장소 {pid}: {row['name']} photo - {places_dict[pid]["photo"]}")
         
         places_dict[pid]["savers"].append({
             "nickname": row['friend_nickname'],
@@ -599,10 +594,6 @@ def get_friend_pins(friend_id):
     if current_lat is not None and current_lng is not None and current_distance is not None:
         query += " HAVING distance <= %s"
         params.append(current_distance)
-
-    logger.debug(f"쿼리 내 %s 개수: {query.count('%s')}")
-    logger.debug(f"params 리스트 개수: {len(params)}")
-    logger.debug(f"params 구성 데이터: {params}")
     
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
@@ -795,7 +786,6 @@ def get_friend_places(friend_id):
                 "saversCount": 0,
                 "savers": []
             }
-            logger.debug(f"장소 {pid}: {row['name']} photo - {places_dict[pid]["photo"]}")
 
         if row['friend_nickname']:
             if not any(s['nickname'] == row['friend_nickname'] for s in places_dict[pid]["savers"]):
@@ -1068,10 +1058,6 @@ def get_my_pins():
     if current_lat is not None and current_lng is not None and current_distance is not None:
         query += " HAVING distance <= %s"
         params.append(current_distance)
-
-    logger.debug(f"쿼리 내 %s 개수: {query.count('%s')}")
-    logger.debug(f"params 리스트 개수: {len(params)}")
-    logger.debug(f"params 구성 데이터: {params}")
     
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
@@ -1311,7 +1297,6 @@ def get_my_places():
                 "saversCount": 0,
                 "savers": []
             }
-            logger.debug(f"장소 {pid}: {places_dict[pid]['SaveType']}")
 
         if row['friend_nickname']:
             places_dict[pid]["savers"].append({
@@ -1327,7 +1312,6 @@ def get_my_places():
         for saver in place["savers"]:
             del saver['updated_at']
 
-    logger.debug(f"savers 관련 업데이트한 최종 장소 정보: {result_list[0]}")
     return jsonify(result_list), 200
 
 # ME: 내 코멘트 조회

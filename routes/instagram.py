@@ -406,7 +406,6 @@ def check_db_have_url(url=""):
             "photo": get_full_photo_url(place.photo)
             }   
             post_places.append(place_data)  
-        logger.debug(f"장소 데이터: {place_data}")
     return target_url.id, texts,post_places # 검색 결과 없으면 빈 리스트 반환   
     
 async def check_caption_place(caption=""):
