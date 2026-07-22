@@ -295,8 +295,7 @@ def post_friend_block(friend_id):
     cursor = db.cursor()
 
     try:
-        # 1. 차단 목록 status update
-        # member_id, friend_id, status 순서로 매핑
+        # 1. 내 쪽 row를 block으로 upsert
         query = """
         INSERT INTO friend (member_id, friend_id, status, created_at, updated_at)
         VALUES (%s, %s, 'block', NOW(), NOW())
@@ -306,11 +305,18 @@ def post_friend_block(friend_id):
         """
         cursor.execute(query, (user_id, friend_id))
 
+        # 2. 상대 -> 나 방향 관계 삭제 (friend든 waiting이든 존재하면 제거)
+        cursor.execute("""
+            DELETE FROM friend
+            WHERE member_id = %s AND friend_id = %s
+        """, (friend_id, user_id))
+
         db.commit()
 
         return jsonify({"message": "User blocked successfully"}), 201
 
     except pymysql.err.IntegrityError:
+        db.rollback()
         return jsonify({"message": "Already blocked"}), 409
     except Exception as e:
         db.rollback()
@@ -419,7 +425,18 @@ def post_request_follow(friend_id):
     cursor = db.cursor()
 
     try:
-        # 이미 요청했거나 친구인지 확인
+        # 차단 여부 확인 (양방향)
+        block_check_query = """
+            SELECT status FROM friend
+            WHERE (member_id = %s AND friend_id = %s)
+              OR (member_id = %s AND friend_id = %s)
+        """
+        cursor.execute(block_check_query, (user_id, friend_id, friend_id, user_id))
+        block_relations = cursor.fetchall()
+
+        if any(r['status'] == 'block' for r in block_relations):
+            return jsonify({'message': 'Cannot follow a blocked user'}), 400
+
         query = """
             SELECT status FROM friend
             WHERE member_id = %s AND friend_id = %s
@@ -438,44 +455,7 @@ def post_request_follow(friend_id):
                 updated_at = NOW()
         """
         cursor.execute(waiting_query, (user_id, friend_id))
-        
-        db.commit()
-        # 푸시 알림
-
-        # 알림 저장
-        noti_query = """
-            INSERT INTO notifications (user_id, sender_id, type, created_at)
-            VALUES (%s, %s, 'follow_request', NOW())
-        """
-        cursor.execute(noti_query, (friend_id, user_id))
-        db.commit()
-  
-        # 알림 메시지용: "OOO님이 팔로우를 요청했습니다"
-        cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (user_id,))
-        my_info = cursor.fetchone()
-        my_nickname = my_info['spot_nickname'] if my_info else "누군가"
-
-        token_query = """
-            SELECT expo_push_token FROM devices 
-            WHERE user_id = %s AND is_active = 1 AND expo_push_token IS NOT NULL
-        """
-        cursor.execute(token_query, (friend_id,))
-        target_device = cursor.fetchone()
-
-        # 비동기 실행
-        if target_device and target_device['expo_push_token']:
-            target_token = target_device['expo_push_token']
-            title = "새로운 팔로우 요청"
-            body = f"{my_nickname}님이 팔로우를 요청했습니다."
-            
-            thr = threading.Thread(
-                target=send_expo_push_notification, 
-                args=(target_token, title, body)
-            )
-            thr.start()
-
-        return jsonify({'message': 'Send follow', 'friend_id': friend_id}), 201
-
+    
     except Exception as e:
         db.rollback()
         return jsonify({'error': str(e)}), 500
@@ -547,15 +527,22 @@ def post_accept_follow(friend_id):
         db.commit()
 
         # 알림 저장 (수신자: 요청 보낸 사람 friend_id, 발신자: 수락한 나 user_id)
+        cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (user_id,))
+        my_info = cursor.fetchone()
+        my_nickname = my_info['spot_nickname'] if my_info else "누군가"
+
+        title = "새로운 팔로우 요청"
+        body = f"{my_nickname}님이 팔로우를 요청했습니다."
+
         noti_query = """
-            INSERT INTO notifications (user_id, sender_id, type, created_at)
-            VALUES (%s, %s, 'follow_accept', NOW())
+            INSERT INTO notifications (user_id, sender_id, type, title, body, created_at)
+            VALUES (%s, %s, 'follow_request', %s, %s, NOW())
         """
-        cursor.execute(noti_query, (friend_id, user_id))
+        cursor.execute(noti_query, (friend_id, user_id, title, body))
         db.commit()
         
         # 알림 메시지용: "OOO님이 팔로우를 수락했습니다"
-        cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (friend_id,))
+        cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (user_id,))
         my_info = cursor.fetchone()
         my_nickname = my_info['spot_nickname'] if my_info else "누군가"
 
@@ -563,7 +550,7 @@ def post_accept_follow(friend_id):
             SELECT expo_push_token FROM devices 
             WHERE user_id = %s AND is_active = 1 AND expo_push_token IS NOT NULL
         """
-        cursor.execute(token_query, (user_id,))
+        cursor.execute(token_query, (friend_id,))
         target_device = cursor.fetchone()
 
         # 비동기 실행
@@ -621,37 +608,30 @@ def post_decline_follow(friend_id):
         description: 서버 에러
     """
     user_id = int(get_jwt_identity())
+
+    if not user_id:
+          return jsonify({"message": "user_id required"}), 400
     
     db = get_db()
     cursor = db.cursor()
 
     try:
-        waiting_query = """
-        DELETE FROM friend
-        WHERE member_id = %s AND friend_id = %s AND status = 'waiting'
-        """
-        cursor.execute(waiting_query, (user_id, friend_id))
-
-        giving_query = """
+        cursor.execute("""
             DELETE FROM friend
-            WHERE member_id = %s AND friend_id = %s AND status = 'give'
-        """
-        cursor.execute(giving_query, (friend_id, user_id))
+            WHERE member_id = %s AND friend_id = %s AND status = 'waiting'
+        """, (friend_id, user_id))
+        deleted = cursor.rowcount
         db.commit()
 
         if cursor.rowcount == 0:
             return jsonify({'message': 'There are no pending follow requests'}), 404
+        
+        if deleted == 0:
+            return jsonify({'message': 'There are no pending follow requests'}), 404
 
-        return jsonify({
-            "message": "Declining follow success",
-            "friend_id": friend_id
-        }), 200
-
+        return jsonify({"message": "Declining follow success", "friend_id": friend_id}), 200
     except Exception as e:
         db.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
-
-        if not user_id:
-          return jsonify({"message": "user_id required"}), 400
