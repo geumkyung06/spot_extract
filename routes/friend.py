@@ -396,7 +396,7 @@ def post_request_follow(friend_id):
         required: true
         description: 팔로우를 요청할 상대방의 유저 ID
     responses:
-      201:
+      200:
         description: 요청 성공 (waiting 상태 생성)
         schema:
           type: object
@@ -457,14 +457,44 @@ def post_request_follow(friend_id):
         cursor.execute(waiting_query, (user_id, friend_id))
         db.commit()
 
-        return jsonify({'message': 'Send follow', 'friend_id': friend_id}), 201
+        # 알림 저장 (수신자: 요청받는 사람 friend_id, 발신자: 요청 보낸 나 user_id)
+        cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (user_id,))
+        my_info = cursor.fetchone()
+        my_nickname = my_info['spot_nickname'] if my_info else "누군가"
+
+        title = "새로운 팔로우 요청"
+        body = f"{my_nickname}님이 팔로우를 요청했습니다."
+
+        noti_query = """
+            INSERT INTO notifications (user_id, sender_id, type, title, body, created_at)
+            VALUES (%s, %s, 'follow_request', %s, %s, NOW())
+        """
+        cursor.execute(noti_query, (friend_id, user_id, title, body))
+        db.commit()
+
+        # 푸시 알림 (수신자: friend_id)
+        token_query = """
+            SELECT expo_push_token FROM devices 
+            WHERE user_id = %s AND is_active = 1 AND expo_push_token IS NOT NULL
+        """
+        cursor.execute(token_query, (friend_id,))
+        target_device = cursor.fetchone()
+
+        if target_device and target_device['expo_push_token']:
+            thr = threading.Thread(
+                target=send_expo_push_notification,
+                args=(target_device['expo_push_token'], title, body)
+            )
+            thr.start()
+
+        return jsonify({'message': 'Send follow', 'friend_id': friend_id}), 200
 
     except Exception as e:
         db.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
-
+        
 # 친구 팔로우 수락하기
 @bp.route('/friends/access_follow/<int:friend_id>', methods=['POST'])
 @jwt_required()
