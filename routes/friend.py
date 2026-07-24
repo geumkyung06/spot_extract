@@ -455,7 +455,10 @@ def post_request_follow(friend_id):
                 updated_at = NOW()
         """
         cursor.execute(waiting_query, (user_id, friend_id))
-    
+        db.commit()
+
+        return jsonify({'message': 'Send follow', 'friend_id': friend_id}), 201
+
     except Exception as e:
         db.rollback()
         return jsonify({'error': str(e)}), 500
