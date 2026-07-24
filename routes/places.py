@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models import db, Place, SavedPlace, SavedSeq
-from services.push_notification import notify_place_bookmarked, notify_same_place_saved
+from services.push_notification import notify_place_bookmarked, notify_same_place_saved, is_following
 
 user_places_bp = Blueprint("saved_places", __name__)
 
@@ -53,6 +53,7 @@ def save_user_places():
                 source_type in ("friend_profile", "comment")
                 and source_user_id
                 and source_user_id != user_id
+                and is_following(source_user_id, user_id)  # source_user_id가 실제로 나를 팔로우 중인지 확인
             )
             logger.debug(
                 f"[알림판단] should_notify_bookmark={should_notify_bookmark} "
@@ -211,6 +212,7 @@ def toggle_bookmark(place_id):
                 source_type in ("friend_profile", "comment")
                 and source_user_id
                 and source_user_id != user_id
+                and is_following(source_user_id, user_id)  # source_user_id가 실제로 나를 팔로우 중인지 확인
             )
             logger.debug(
                 f"[알림판단] should_notify_bookmark={should_notify_bookmark} "
