@@ -263,6 +263,10 @@ def build_body_segments(notification_type, nickname, **kwargs):
             {"text": nickname, "bold": True},
             {"text": f"님이 회원님과 같은 {kwargs.get('place_name', '장소')}을 저장했습니다.", "bold": False},
         ],
+        "instagram_extract": lambda: [
+            {"text": kwargs.get("title", "추출 완료"), "bold": True},
+            {"text": "\n" + kwargs.get("body", "").split("\n", 1)[-1] if "\n" in kwargs.get("body", "") else kwargs.get("body", ""), "bold": False},
+        ],
     }
 
     builder = templates.get(notification_type)

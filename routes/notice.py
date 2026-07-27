@@ -6,7 +6,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Device
 
 from services.my_logger import get_my_logger
-from services.push_notification import build_body_segments
+from services.push_notification import build_body_segments, send_extraction_notification
 
 bp = Blueprint('notification', __name__)
 logger = get_my_logger(__name__)
@@ -423,6 +423,7 @@ def check_notification():
                 row["type"],
                 row.get("spot_nickname"),
                 place_name=row.get("place_name"),
+                body=row.get("body"),
             )
 
         return jsonify({"notifications": rows}), 200
