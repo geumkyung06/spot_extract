@@ -185,7 +185,10 @@ def delete_friend_unfollow(friend_id):
         db.commit()
 
         if cursor.rowcount == 0:
-            return jsonify({"message": "Friend relationship not found or already deleted"}), 404
+          return jsonify({
+              "message": "Friend relationship not found or already deleted",
+              "status": "none"
+          }), 404
 
         return jsonify({
             "message": "Unfollow success",
@@ -665,6 +668,25 @@ def post_decline_follow(friend_id):
         return jsonify({"message": "Declining follow success", "friend_id": friend_id}), 200
     except Exception as e:
         db.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+@bp.route('/friends/status/<int:friend_id>', methods=['GET'])
+@jwt_required()
+def get_friend_status(friend_id):
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("""
+            SELECT status FROM friend
+            WHERE member_id = %s AND friend_id = %s
+        """, (user_id, friend_id))
+        row = cursor.fetchone()
+        status = row['status'] if row else 'none'  # 'friend' / 'waiting' / 'block' / 'none'
+        return jsonify({'friend_id': friend_id, 'status': status}), 200
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
