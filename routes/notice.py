@@ -393,6 +393,7 @@ def check_notification():
             SELECT 
                 n.id            AS notification_id,
                 n.type,
+                n.body,
                 n.is_read,
                 n.created_at,
                 n.target_id,
