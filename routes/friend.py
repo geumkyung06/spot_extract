@@ -675,6 +675,45 @@ def post_decline_follow(friend_id):
 @bp.route('/friends/status/<int:friend_id>', methods=['GET'])
 @jwt_required()
 def get_friend_status(friend_id):
+    """
+    나와 특정 유저의 관계 상태 조회
+    ---
+    tags:
+      - Friend
+    summary: 특정 유저와 나 사이의 팔로우/친구 관계 상태를 반환 (버튼 상태 동기화용)
+    security:
+      - Bearer: []
+    parameters:
+      - name: friend_id
+        in: path
+        type: integer
+        required: true
+        description: 상태를 확인할 상대방의 유저 ID
+    responses:
+      200:
+        description: 조회 성공
+        schema:
+          type: object
+          properties:
+            friend_id:
+              type: integer
+              description: 상대방 유저 ID
+            status:
+              type: string
+              enum: [friend, waiting, block, none]
+              description: >
+                나(member_id) 기준 상대방과의 관계 상태.
+                friend=친구, waiting=내가 요청 보내고 대기중,
+                block=내가 차단함, none=아무 관계 없음
+              example: "none"
+      500:
+        description: 서버 에러
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+    """
     user_id = int(get_jwt_identity())
     db = get_db()
     cursor = db.cursor()
