@@ -66,6 +66,7 @@ async def get_caption_no_login(post_url: str):
         )
 
         logger.debug("페이지 goto 시작")
+        page.on("framenavigated", lambda frame: logger.debug(f"프레임 이동: {frame.url}"))
         await page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
         logger.debug("페이지 goto 완료")
         
