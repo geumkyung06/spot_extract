@@ -10,7 +10,7 @@ import time
 from playwright.async_api import async_playwright
 from flask import Blueprint, request, jsonify
 
-from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, add_score_and_check_ad, peek_score_and_target, create_ad_ticket, commit_score, verify_ad_ticket
+from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, peek_score_and_target, create_ad_ticket, commit_score, verify_ad_ticket
 from services.my_logger import get_my_logger
 from routes.instagram import extract_shortcode, check_db_have_url
 from services.instagram_text_parser import get_caption_no_login, extract_places_with_gpt, is_place_post

@@ -5,10 +5,6 @@ import re
 import json
 from playwright.async_api import Page, async_playwright
 
-from services.instagram_image_extracter import extract_insta_images
-from services.browser_manager import global_browser_manager
-
-
 def get_shortcode(post_url: str) -> str | None:
     match = re.search(r"/(?:p|reel)/([A-Za-z0-9_-]+)", post_url)
     return match.group(1) if match else None
