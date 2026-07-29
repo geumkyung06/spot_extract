@@ -502,39 +502,7 @@ def post_request_follow(friend_id):
 @bp.route('/friends/access_follow/<int:friend_id>', methods=['POST'])
 @jwt_required()
 def post_accept_follow(friend_id):
-    """
-    친구 팔로우 수락하기
-    ---
-    tags:
-      - Friend
-    summary: 나에게 온 팔로우 요청 수락
-    description: friend_id에는 '나에게 요청을 보낸 사람'의 ID를 넣어야 함
-    security:
-      - Bearer: []
-    parameters:
-      - name: friend_id
-        in: path
-        type: integer
-        required: true
-        description: 요청을 보낸 사람의 유저 ID (Requester ID)
-    responses:
-      200:
-        description: 수락 성공
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: "Follow access"
-            friend_id:
-              type: integer
-      404:
-        description: 대기 중인 요청이 없음
-      500:
-        description: 서버 에러
-    """
     user_id = int(get_jwt_identity())
-    
     db = get_db()
     cursor = db.cursor()
 
@@ -551,36 +519,28 @@ def post_accept_follow(friend_id):
         if not request_exist:
             return jsonify({'message': 'There are no pending follow requests'}), 404
 
-        # 상태를 'friend'로 업데이트 (팔로우 허락)
+        # ★ 빠졌던 부분: 실제 상태 변경
         waiting_query = """
-        UPDATE friend
-        SET status = 'friend', updated_at = NOW()
-        WHERE member_id = %s AND friend_id = %s
+            UPDATE friend
+            SET status = 'friend', updated_at = NOW()
+            WHERE member_id = %s AND friend_id = %s
         """
         cursor.execute(waiting_query, (friend_id, user_id))
 
-        # 푸시 알림
-        db.commit()
-
-        # 알림 저장 (수신자: 요청 보낸 사람 friend_id, 발신자: 수락한 나 user_id)
+        # 알림 메시지용
         cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (user_id,))
         my_info = cursor.fetchone()
         my_nickname = my_info['spot_nickname'] if my_info else "누군가"
 
-        title = "새로운 팔로우 요청"
-        body = f"{my_nickname}님이 팔로우를 요청했습니다."
+        title = "팔로우 수락"
+        body = f"{my_nickname}님이 팔로우를 수락했습니다."
 
         noti_query = """
             INSERT INTO notifications (user_id, sender_id, type, title, body, created_at)
-            VALUES (%s, %s, 'follow_request', %s, %s, NOW())
+            VALUES (%s, %s, 'follow_accept', %s, %s, NOW())
         """
         cursor.execute(noti_query, (friend_id, user_id, title, body))
         db.commit()
-        
-        # 알림 메시지용: "OOO님이 팔로우를 수락했습니다"
-        cursor.execute("SELECT spot_nickname FROM kakao_mem WHERE id = %s", (user_id,))
-        my_info = cursor.fetchone()
-        my_nickname = my_info['spot_nickname'] if my_info else "누군가"
 
         token_query = """
             SELECT expo_push_token FROM devices 
@@ -589,15 +549,10 @@ def post_accept_follow(friend_id):
         cursor.execute(token_query, (friend_id,))
         target_device = cursor.fetchone()
 
-        # 비동기 실행
         if target_device and target_device['expo_push_token']:
-            target_token = target_device['expo_push_token']
-            title = "팔로우 수락"
-            body = f"{my_nickname}님이 팔로우를 수락했습니다."
-            
             thr = threading.Thread(
-                target=send_expo_push_notification, 
-                args=(target_token, title, body)
+                target=send_expo_push_notification,
+                args=(target_device['expo_push_token'], title, body)
             )
             thr.start()
 
@@ -607,8 +562,8 @@ def post_accept_follow(friend_id):
         db.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
-        cursor.close()
-    
+        cursor.close() 
+        
 # 친구 팔로우 거절하기
 @bp.route('/friends/decline_follow/<int:friend_id>', methods=['POST'])
 @jwt_required()
