@@ -22,7 +22,6 @@ class BrowserManager:
             playwright_obj = await async_playwright().start()
             browser = await asyncio.wait_for(
                 playwright_obj.chromium.launch(
-                    channel="chromium",
                     headless=True,
                     args=[
                         "--no-sandbox",
