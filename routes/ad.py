@@ -7,7 +7,7 @@ from ecdsa import VerifyingKey, BadSignatureError
 from ecdsa.util import sigdecode_der
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import time
-from playwright.async_api import async_playwright
+from services.browser_manager import global_browser_manager
 from flask import Blueprint, request, jsonify
 
 from services.redis_helper import redis_client, check_abuse_and_rate_limit, handle_fail_count, peek_score_and_target, create_ad_ticket, commit_score, verify_ad_ticket
@@ -157,18 +157,23 @@ async def extract_eligibility():
         caption_extract_end = time.time()
         logger.info(f"caption time: {caption_extract_end - caption_extract_start: .2f}s")
 
-        if caption_place == []: # caption_place 리스트형태 / 장소 없으면 빈 리스트
+        if caption_place == []:
             logger.debug("[3] OCR 시도")
             extract_type = "ocr"
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
+
+            playwright_obj, browser, context = await global_browser_manager.get_context()
+            page = await context.new_page()
+            try:
                 img_count = await extract_post_data(page, url)
-                await page.close()
-                await browser.close()
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+                await global_browser_manager.release(playwright_obj, browser, context)
 
             if img_count == -1:
-                img_count = 2  # 캐러셀 확인됐지만 정확한 개수 파악 실패 시 최소값으로 처리
+                img_count = 2
             earned_score = 1.0 * img_count
             logger.info(f"[3] OCR - {earned_score}점")
         else :
