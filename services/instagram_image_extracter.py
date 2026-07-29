@@ -1,9 +1,7 @@
 from flask import request
 import json, os, re, io
 import asyncio, aiohttp
-import uuid
 import html
-from playwright.async_api import async_playwright
 from google import genai
 from google.genai import types
 from PIL import Image

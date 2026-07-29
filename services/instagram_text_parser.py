@@ -2,7 +2,6 @@ import asyncio
 import json
 import re
 import os
-from playwright.async_api import async_playwright
 from konlpy.tag import Kkma # 좀 더 가벼운 모델로 변경
 from collections import Counter
 from openai import OpenAI

@@ -3,7 +3,7 @@ import asyncio
 import time
 import re
 import json
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import Page
 
 def get_shortcode(post_url: str) -> str | None:
     match = re.search(r"/(?:p|reel)/([A-Za-z0-9_-]+)", post_url)
