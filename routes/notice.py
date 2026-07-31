@@ -313,9 +313,11 @@ def check_notification():
       - Notification
     summary: 로그인 유저가 받은 모든 종류의 알림 목록 반환
     description: >
-      follow_request, follow_accept, place_bookmarked, friend_saved_same_place 등
-      모든 타입의 알림을 최신순으로 반환합니다. body_segments는 프론트에서
-      볼드 처리할 부분을 구분한 세그먼트 배열입니다.
+      follow_request, follow_accept, place_bookmarked, friend_saved_same_place,
+      instagram_extract 등 모든 타입의 알림을 최신순으로 반환합니다. body_segments는
+      프론트에서 볼드 처리할 부분을 구분한 세그먼트 배열입니다. target_type이 'place'인
+      알림(place_bookmarked, friend_saved_same_place, instagram_extract)은 place_name,
+      place_photo가 함께 채워집니다.
     security:
       - Bearer: []
     responses:
@@ -334,7 +336,7 @@ def check_notification():
                     example: 1
                   type:
                     type: string
-                    example: "place_bookmarked"
+                    example: "instagram_extract"
                   is_read:
                     type: boolean
                     example: false
@@ -344,16 +346,18 @@ def check_notification():
                   target_id:
                     type: integer
                     example: 87
-                    description: 알림 타입에 따라 place_id 등 참조 대상
+                    description: 알림 타입에 따라 place_id 등 참조 대상 (없으면 null)
                   target_type:
                     type: string
-                    example: "profile"
+                    example: "place"
                   sender_id:
                     type: integer
                     example: 42
+                    description: 발신자 유저 ID (instagram_extract처럼 시스템 알림인 경우 null)
                   photo:
                     type: string
                     example: "https://..."
+                    description: 발신자 프로필 사진
                   spot_id:
                     type: string
                     example: "onlyDelicious"
@@ -366,7 +370,11 @@ def check_notification():
                   place_name:
                     type: string
                     example: "스타벅스 강남점"
-                    description: target이 place인 알림에서만 채워짐
+                    description: target_type이 'place'인 알림에서만 채워짐
+                  place_photo:
+                    type: string
+                    example: "https://example.com/place_image.jpg"
+                    description: target_type이 'place'인 알림에서만 채워짐. place.photo에 get_full_photo_url 적용된 값
                   body_segments:
                     type: array
                     items:
@@ -430,11 +438,6 @@ def check_notification():
                 place_name=row.get("place_name"),
                 body=row.get("body"),
             )
-
-        insta_rows = [r for r in rows if r["type"] == "instagram_extract"]
-        if insta_rows:
-            logger.debug(f"instagram_extract 알림: {insta_rows}")
-            
         return jsonify({"notifications": rows}), 200
 
     except Exception as e:
