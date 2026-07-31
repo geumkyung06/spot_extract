@@ -148,7 +148,6 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
     """
     if not saved_place_ids:
         return
-
     following_ids = get_following_ids(actor_id)
     if not following_ids:
         logger.debug(f"friend_saved_same_place 스킵 - actor={actor_id}가 팔로우하는 사람 없음")
@@ -210,7 +209,7 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
         token = _get_active_token(target_id)
         _push_async(token, title, push_body)
 
-def send_extraction_notification(user_id, status: str, caption: str, place_count: int = 0):
+def send_extraction_notification(user_id, status: str, caption: str, place_count: int = 0, pid: int = 0):
     """status: 'success' | 'failed'"""
     title = "추출 완료" if status == "success" else "추출 실패"
     noti_caption = (caption or "").strip('\n')[:15].rstrip()
@@ -229,6 +228,8 @@ def send_extraction_notification(user_id, status: str, caption: str, place_count
             type='instagram_extract',
             title=title,
             body=db_body,
+            target_id=pid,
+            target_type="place",
             is_read=False
         )
         db.session.add(new_noti)

@@ -353,7 +353,7 @@ async def analyze_instagram():
                     handle_fail_count(user_id)
                     # 게시물에서 장소 추출을 실패했습니다
                     # 추출 알림
-                    send_extraction_notification(user_id, 'failed', caption, 0)
+                    send_extraction_notification(user_id, 'failed', caption, 0, None)
                     return jsonify({'status':'failed', 'message': "can not found places"}), 404
 
         end = time.time()
@@ -362,7 +362,8 @@ async def analyze_instagram():
 
         # 추출 알림
         # 알림 저장
-        send_extraction_notification(user_id, 'success', caption, len(post_places))
+        pid = post_places[0]["id"] if post_places else None
+        send_extraction_notification(user_id, 'success', caption, len(post_places), pid)
 
         # 프론트에 보낼 장소 정보
         return jsonify({'status':'success', 'results': post_places}), 200

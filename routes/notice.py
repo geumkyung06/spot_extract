@@ -6,7 +6,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Device
 
 from services.my_logger import get_my_logger
-from services.push_notification import build_body_segments, send_extraction_notification
+from services.push_notification import build_body_segments
+from services.utils import get_full_photo_url
 
 bp = Blueprint('notification', __name__)
 logger = get_my_logger(__name__)
@@ -403,12 +404,13 @@ def check_notification():
                 m.spot_id,
                 m.spot_nickname,
                 m.one_line,
-                p.name          AS place_name
+                p.name          AS place_name,
+                p.photo         AS place_photo
             FROM notifications n
             LEFT JOIN kakao_mem m ON m.id = n.sender_id
             LEFT JOIN place p 
                 ON p.id = n.target_id 
-                AND n.type IN ('place_bookmarked', 'friend_saved_same_place')
+                AND n.type IN ('place_bookmarked', 'friend_saved_same_place', 'instagram_extract')
             WHERE n.user_id = %s
             ORDER BY n.created_at DESC
         """, (user_id,))
@@ -420,6 +422,8 @@ def check_notification():
             if row.get("created_at"):
                 row["created_at"] = row["created_at"].strftime("%Y-%m-%d %H:%M:%S")
 
+            row["place_photo"] = get_full_photo_url(row.get("place_photo")) if row.get("place_photo") else None
+
             row["body_segments"] = build_body_segments(
                 row["type"],
                 row.get("spot_nickname"),
@@ -427,6 +431,10 @@ def check_notification():
                 body=row.get("body"),
             )
 
+        insta_rows = [r for r in rows if r["type"] == "instagram_extract"]
+        if insta_rows:
+            logger.debug(f"instagram_extract 알림: {insta_rows}")
+            
         return jsonify({"notifications": rows}), 200
 
     except Exception as e:
