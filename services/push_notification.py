@@ -212,14 +212,17 @@ def notify_same_place_saved(actor_id, saved_place_ids, exclude_user_id=None):
 def send_extraction_notification(user_id, status: str, caption: str, place_count: int = 0, pid: int = 0):
     """status: 'success' | 'failed'"""
     title = "추출 완료" if status == "success" else "추출 실패"
-    noti_caption = (caption or "").strip('\n')[:15].rstrip()
+
+    clean_caption = (caption or "").strip('\n')
+    db_caption = clean_caption[:40].rstrip()     
+    push_caption = clean_caption[:15].rstrip()  
 
     if status == "success":
-        db_body = f"요청하신 게시물 추출이 완료되었습니다.\n{noti_caption}..."
-        push_body = f"요청하신 게시물에서 {place_count}개의 장소를 추출했습니다. {noti_caption}...".rstrip()
+        db_body = f"요청하신 게시물 추출이 완료되었습니다.\n{db_caption}"
+        push_body = f"요청하신 게시물에서 {place_count}개의 장소를 추출했습니다. {push_caption}...".rstrip()
     else:
-        db_body = f"게시물에서 장소 추출을 실패했습니다.\n{noti_caption}..."
-        push_body = f"게시물에서 장소 추출을 실패했습니다. {noti_caption}...".rstrip()
+        db_body = f"게시물에서 장소 추출을 실패했습니다.\n{db_caption}"
+        push_body = f"게시물에서 장소 추출을 실패했습니다. {push_caption}...".rstrip()
 
     try:
         new_noti = Notification(
@@ -228,8 +231,8 @@ def send_extraction_notification(user_id, status: str, caption: str, place_count
             type='instagram_extract',
             title=title,
             body=db_body,
-            target_id=pid,
-            target_type="place",
+            target_id=pid if pid else None,
+            target_type="place" if pid else None,
             is_read=False
         )
         db.session.add(new_noti)
@@ -240,7 +243,7 @@ def send_extraction_notification(user_id, status: str, caption: str, place_count
 
     token = _get_active_token(user_id)
     _push_async(token, title, push_body)
-
+    
 def build_body_segments(notification_type, nickname, **kwargs):
     """
     알림 type에 따라 [{"text":..., "bold":...}, ...] 형태의 세그먼트 반환
