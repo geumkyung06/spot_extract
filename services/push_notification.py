@@ -1,5 +1,6 @@
 import requests
 import threading
+import re
 from datetime import datetime
 
 from models import db, Device, Notification, KakaoMem, Friend, Place, SavedPlace
@@ -213,9 +214,9 @@ def send_extraction_notification(user_id, status: str, caption: str, place_count
     """status: 'success' | 'failed'"""
     title = "추출 완료" if status == "success" else "추출 실패"
 
-    clean_caption = (caption or "").strip('\n')
-    db_caption = clean_caption[:40].rstrip()     
-    push_caption = clean_caption[:15].rstrip()  
+    normalized = re.sub(r'\s+', ' ', caption or '').strip()  # 중간 개행/연속 공백 -> 공백 1개
+    db_caption = normalized[:40].rstrip()
+    push_caption = normalized[:15].rstrip()
 
     if status == "success":
         db_body = f"요청하신 게시물 추출이 완료되었습니다.\n{db_caption}"
